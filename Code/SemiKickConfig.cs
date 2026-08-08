@@ -1,4 +1,6 @@
 using BepInEx.Configuration;
+using BepInEx.Logging;
+using Photon.Pun;
 
 namespace SemiKick
 {
@@ -9,6 +11,14 @@ namespace SemiKick
     // у меня не было полной актуальной версии этого файла.
     internal static class SemiKickConfig
     {
+        // Включить/выключить логи вообще
+        public static ConfigEntry<bool> EnableLogging;
+
+        // Порог уровня логов (Info, Debug, Error и т.д.)
+        public static ConfigEntry<LogLevel> MinLogLevel;
+
+
+
         // --- Сила пинка (существующее) ---
         public static ConfigEntry<float> BaseForce;
         public static ConfigEntry<int> KickLevel;
@@ -24,13 +34,28 @@ namespace SemiKick
         public static ConfigEntry<float> KnockbackSoftThreshold;
         public static ConfigEntry<float> KnockbackHardThreshold;
         public static ConfigEntry<float> RecoilForceMultiplier;
+        public static ConfigEntry<float> KnockbackHardMinForce;
         public static ConfigEntry<float> ImpactHurtWindow;
         public static ConfigEntry<int> ImpactHurtDamageBase;
         public static ConfigEntry<int> ImpactHurtDamageMax;
 
         public static void Init(ConfigFile config)
         {
-            BaseForce = config.Bind("Kick", "BaseForce", 1f, "Базовая сила пинка (до апгрейдов).");
+            EnableLogging = config.Bind(
+                "Logging",                  // Секция в .cfg
+                "EnableLogging",            // Ключ
+                true,                       // Дефолтное значение
+                "Включить или отключить логирование мода" // Описание
+            );
+
+            MinLogLevel = config.Bind(
+                "Logging",
+                "MinLogLevel",
+                LogLevel.Info,              // По умолчанию пишем от Info и выше
+                "Минимальный уровень логов (Debug, Info, Warning, Error)"
+            );
+
+            BaseForce = config.Bind("Kick", "BaseForce", 10f, "Базовая сила пинка (до апгрейдов).");
             KickLevel = config.Bind("Kick", "KickLevel", 0, "Текущий уровень апгрейда силы пинка.");
             LevelMultiplier = config.Bind("Kick", "LevelMultiplier", 0.5f, "Множитель силы за уровень.");
 
@@ -43,8 +68,10 @@ namespace SemiKick
                 "targetMass/kickForce выше этого значения -> лёгкая отдача без тамбла.");
             KnockbackHardThreshold = config.Bind("Knockback", "HardThreshold", 4f,
                 "targetMass/kickForce выше этого значения -> тамбл + заряженный урон.");
-            RecoilForceMultiplier = config.Bind("Knockback", "RecoilForceMultiplier", 1f,
-                "Множитель силы self-impulse относительно kickForce.");
+            RecoilForceMultiplier = config.Bind("Knockback", "RecoilForceMultiplier", 3f,
+                "Множитель self-impulse относительно МАССЫ ЦЕЛИ (не kickForce) — recoilForce = targetMass * этот множитель.");
+            KnockbackHardMinForce = config.Bind("Knockback", "HardMinForce", 20f,
+                "Гарантированный минимум силы self-impulse, когда сработал тамбл (перебивает computedForce, если тот меньше).");
             ImpactHurtWindow = config.Bind("Knockback", "ImpactHurtWindow", 0.5f,
                 "Окно в секундах, в течение которого столкновение после тамбла наносит урон (tumble.ImpactHurtSet).");
             ImpactHurtDamageBase = config.Bind("Knockback", "ImpactHurtDamageBase", 15,
@@ -52,7 +79,7 @@ namespace SemiKick
             ImpactHurtDamageMax = config.Bind("Knockback", "ImpactHurtDamageMax", 50,
                 "Максимальный урон при экстремальном превышении HardThreshold.");
 
-            SemiKick.Log.LogInfo("[SemiKick] SemiKickConfig.Init завершён. " +
+            SemiKick.LogInfo("[SemiKick] SemiKickConfig.Init завершён. " +
                 $"BaseForce={BaseForce.Value}, KickLevel={KickLevel.Value}, LevelMultiplier={LevelMultiplier.Value}, " +
                 $"KnockbackSoft={KnockbackSoftThreshold.Value}, KnockbackHard={KnockbackHardThreshold.Value}");
         }

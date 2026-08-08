@@ -43,6 +43,17 @@ namespace SemiKick
 
             // 1. Игрок — самый специфичный случай
             var player = col.GetComponentInParent<PlayerAvatar>();
+            if (player == null)
+            {
+                // На игроке PlayerAvatar сидит на "Player Avatar Controller", а
+                // визуальные меши (голова, ноги и т.д.) — в отдельной ветке [RIG],
+                // сиблинге относительно Player Avatar Controller (оба под Player
+                // Visuals). GetComponentInParent с коллайдера меша это не находит —
+                // тот же случай, что и с EnemyRigidbody/Enemy у мобов.
+                // transform.root тут безопасен: PlayerAvatar(Clone) — уникальный
+                // корень именно ЭТОГО игрока, не общий на всю сцену.
+                player = col.transform.root.GetComponentInChildren<PlayerAvatar>();
+            }
             if (player != null)
             {
                 result.Type = KickTargetType.Player;

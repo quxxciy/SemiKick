@@ -19,7 +19,7 @@ namespace SemiKick
             if (enemyRb == null) return null;
             var rb = Traverse.Create(enemyRb).Field("rb").GetValue<Rigidbody>();
             if (rb == null)
-                SemiKick.Log.LogWarning("[SemiKick] InternalAccessors.GetEnemyRigidbody: поле 'rb' вернуло null.");
+                SemiKick.LogWarning("[SemiKick] InternalAccessors.GetEnemyRigidbody: поле 'rb' вернуло null.");
             return rb;
         }
 
@@ -52,15 +52,15 @@ namespace SemiKick
         {
             if (player == null)
             {
-                SemiKick.Log.LogWarning("[SemiKick] InternalAccessors.GetTumbleComponent: player == null.");
+                SemiKick.LogWarning("[SemiKick] InternalAccessors.GetTumbleComponent: player == null.");
                 return null;
             }
 
             var tumble = Traverse.Create(player).Field("tumble").GetValue<PlayerTumble>();
             if (tumble == null)
-                SemiKick.Log.LogWarning($"[SemiKick] InternalAccessors.GetTumbleComponent: поле 'tumble' вернуло null для {player.name}.");
+                SemiKick.LogWarning($"[SemiKick] InternalAccessors.GetTumbleComponent: поле 'tumble' вернуло null для {player.name}.");
             else
-                SemiKick.Log.LogInfo($"[SemiKick] InternalAccessors.GetTumbleComponent: tumble найден для {player.name}.");
+                SemiKick.LogInfo($"[SemiKick] InternalAccessors.GetTumbleComponent: tumble найден для {player.name}.");
 
             return tumble;
         }
@@ -83,5 +83,27 @@ namespace SemiKick
         // TODO: уточнить у слабой ИИ точную сигнатуру метода в PhysGrabber,
         // который сравнивает grabStrength игрока с массой объекта —
         // сюда добавить обёртку, когда будет найден.
+
+
+        // Объявляем быстрые ссылки на internal-поля класса PlayerAvatar
+        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> IsTumblingRef =
+            AccessTools.FieldRefAccess<PlayerAvatar, bool>("isTumbling");
+
+        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> IsCrouchingRef =
+            AccessTools.FieldRefAccess<PlayerAvatar, bool>("isCrouching");
+
+        private static readonly AccessTools.FieldRef<PlayerAvatar, bool> IsGroundedRef =
+            AccessTools.FieldRefAccess<PlayerAvatar, bool>("isGrounded");
+
+        public static bool OhGodDeveloper_WHATDIDIEVERDOTOYOU(PlayerAvatar player)
+        {
+            if (player == null) return false;
+
+            bool isTumbling = IsTumblingRef(player);
+            bool isCrouching = IsCrouchingRef(player);
+            bool isGrounded = IsGroundedRef(player);
+
+            return !isTumbling && !isCrouching && isGrounded;
+        }
     }
 }

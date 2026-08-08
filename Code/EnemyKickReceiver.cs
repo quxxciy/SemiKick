@@ -34,11 +34,11 @@ namespace SemiKick
                 : GetComponentInChildren<EnemyRigidbody>();
 
             if (_enemyRigidbody == null)
-                SemiKick.Log.LogWarning($"[SemiKick] EnemyKickReceiver на {name}: не нашёл EnemyRigidbody у сиблингов родителя.");
+                SemiKick.LogWarning($"[SemiKick] EnemyKickReceiver на {name}: не нашёл EnemyRigidbody у сиблингов родителя.");
             if (_stateStunned == null)
-                SemiKick.Log.LogWarning($"[SemiKick] EnemyKickReceiver на {name}: не нашёл StateStunned — нокбэк будет гаситься AI на следующем кадре.");
+                SemiKick.LogWarning($"[SemiKick] EnemyKickReceiver на {name}: не нашёл StateStunned — нокбэк будет гаситься AI на следующем кадре.");
 
-            SemiKick.Log.LogInfo($"[SemiKick] EnemyKickReceiver.Awake на {name}: enemyRigidbody={(_enemyRigidbody != null)}, stateStunned={(_stateStunned != null)}");
+            SemiKick.LogInfo($"[SemiKick] EnemyKickReceiver.Awake на {name}: enemyRigidbody={(_enemyRigidbody != null)}, stateStunned={(_stateStunned != null)}");
         }
 
         /// <summary>
@@ -50,21 +50,21 @@ namespace SemiKick
         {
             if (_enemyRigidbody == null)
             {
-                SemiKick.Log.LogWarning($"[SemiKick] EnemyKickReceiver.GetMass на {name}: _enemyRigidbody == null, возвращаю 0.");
+                SemiKick.LogWarning($"[SemiKick] EnemyKickReceiver.GetMass на {name}: _enemyRigidbody == null, возвращаю 0.");
                 return 0f;
             }
 
             var rb = InternalAccessors.GetEnemyRigidbody(_enemyRigidbody);
             float mass = rb != null ? rb.mass : 0f;
 
-            SemiKick.Log.LogInfo($"[SemiKick] EnemyKickReceiver.GetMass на {name}: rb={(rb != null)}, mass={mass}");
+            SemiKick.LogInfo($"[SemiKick] EnemyKickReceiver.GetMass на {name}: rb={(rb != null)}, mass={mass}");
 
             return mass;
         }
 
         public void SendKick(Vector3 force)
         {
-            SemiKick.Log.LogInfo($"[SemiKick] EnemyKickReceiver.SendKick на {name}: force={force}, magnitude={force.magnitude}, Multiplayer={GameManager.Multiplayer()}");
+            SemiKick.LogInfo($"[SemiKick] EnemyKickReceiver.SendKick на {name}: force={force}, magnitude={force.magnitude}, Multiplayer={GameManager.Multiplayer()}");
 
             if (!GameManager.Multiplayer())
             {
@@ -75,7 +75,7 @@ namespace SemiKick
             var photonView = InternalAccessors.GetEnemyPhotonView(_enemy);
             if (photonView == null)
             {
-                SemiKick.Log.LogWarning($"[SemiKick] EnemyKickReceiver.SendKick на {name}: photonView == null, RPC не отправлен.");
+                SemiKick.LogWarning($"[SemiKick] EnemyKickReceiver.SendKick на {name}: photonView == null, RPC не отправлен.");
                 return;
             }
 
@@ -85,11 +85,11 @@ namespace SemiKick
         [PunRPC]
         public void ReceiveKickRPC(Vector3 force, PhotonMessageInfo _info = default)
         {
-            SemiKick.Log.LogInfo($"[SemiKick] EnemyKickReceiver.ReceiveKickRPC на {name}: force={force}");
+            SemiKick.LogInfo($"[SemiKick] EnemyKickReceiver.ReceiveKickRPC на {name}: force={force}");
 
             if (_enemyRigidbody == null)
             {
-                SemiKick.Log.LogWarning($"[SemiKick] EnemyKickReceiver.ReceiveKickRPC на {name}: _enemyRigidbody == null, импульс не применён.");
+                SemiKick.LogWarning($"[SemiKick] EnemyKickReceiver.ReceiveKickRPC на {name}: _enemyRigidbody == null, импульс не применён.");
                 return;
             }
 

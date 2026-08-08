@@ -17,11 +17,12 @@ namespace SemiKick
             _animPlayer = animPlayer;
             _avatar = avatar;
 
-            SemiKick.Log.LogInfo($"[SemiKick] KickAnimHandler.Initialize вызван, avatar={(avatar != null ? avatar.name : "NULL")}");
+            SemiKick.LogInfo($"[SemiKick] KickAnimHandler.Initialize вызван, avatar={(avatar != null ? avatar.name : "NULL")}");
+            SemiKick.LogInfo($"[JSONAnimation] KickAnimHandler.Initialize: animPlayer передан как {(animPlayer != null ? "не NULL" : "NULL")}.");
 
             if (avatar == null)
             {
-                SemiKick.Log.LogError("[SemiKick] KickAnimHandler.Initialize: avatar передана как NULL!");
+                SemiKick.LogError("[SemiKick] KickAnimHandler.Initialize: avatar передана как NULL!");
                 return;
             }
 
@@ -29,13 +30,13 @@ namespace SemiKick
 
             if (_photonView == null)
             {
-                SemiKick.Log.LogError($"[SemiKick] Не удалось найти PhotonView на объекте {avatar.name}!");
+                SemiKick.LogError($"[SemiKick] Не удалось найти PhotonView на объекте {avatar.name}!");
                 return;
             }
 
             _isLocal = !SemiFunc.IsMultiplayer() || _photonView.IsMine;
 
-            SemiKick.Log.LogInfo($"[SemiKick] KickAnimHandler: PhotonView найден, IsMine={_photonView.IsMine}, IsMultiplayer={SemiFunc.IsMultiplayer()}, isLocal={_isLocal}, ViewID={_photonView.ViewID}");
+            SemiKick.LogInfo($"[SemiKick] KickAnimHandler: PhotonView найден, IsMine={_photonView.IsMine}, IsMultiplayer={SemiFunc.IsMultiplayer()}, isLocal={_isLocal}, ViewID={_photonView.ViewID}");
 
             if (_isLocal)
             {
@@ -43,23 +44,29 @@ namespace SemiKick
                 if (runner != null)
                 {
                     runner.SetLocalPlayer(this);
-                    SemiKick.Log.LogInfo("[SemiKick] KickAnimHandler: локальный игрок зарегистрирован в SemiKickRunner, Avatar передан.");
+                    SemiKick.LogInfo("[SemiKick] KickAnimHandler: локальный игрок зарегистрирован в SemiKickRunner, Avatar передан.");
                 }
                 else
                 {
-                    SemiKick.Log.LogWarning("[SemiKick] SemiKickRunner не найден на сцене! Локальный Avatar не будет доступен для knockback.");
+                    SemiKick.LogWarning("[SemiKick] SemiKickRunner не найден на сцене! Локальный Avatar не будет доступен для knockback.");
                 }
             }
 
-            SemiKick.Log.LogInfo($"[SemiKick] KickAnimHandler успешно инициализирован (Local: {_isLocal}, ViewID: {_photonView.ViewID})");
+            SemiKick.LogInfo($"[SemiKick] KickAnimHandler успешно инициализирован (Local: {_isLocal}, ViewID: {_photonView.ViewID})");
         }
 
         // Этот метод вызывает только локальный игрок из Runner
         public void PerformKick()
         {
-            if (_animPlayer != null && GameManager.Multiplayer())
+            Debug.Log($"[JSONAnimation] KickAnimHandler.PerformKick вызван для {(_avatar != null ? _avatar.name : "NULL")}: _animPlayer={(_animPlayer != null ? "не NULL" : "NULL")}, Multiplayer={GameManager.Multiplayer()}.");
+
+            if (_animPlayer != null)
             {
                 _animPlayer.PlayKick();
+            }
+            else
+            {
+                Debug.LogWarning($"[JSONAnimation] KickAnimHandler.PerformKick: _animPlayer == NULL — анимация физически не может проиграться, т.к. компонент не был передан при Initialize (см. PlayerAvatarVisualsPatch).");
             }
 
             if (_photonView != null && GameManager.Multiplayer())
@@ -75,6 +82,39 @@ namespace SemiKick
             {
                 _animPlayer.PlayKick();
             }
+        }
+
+        /// <summary>
+        /// Просит применить импульс к игроку, которого пнули. Игра разрешает
+        /// ForceImpulseRPC только от мастера или от владельца аватара
+        /// (см. MasterAndOwnerOnlyRPC в декомпиле PlayerAvatar.ForceImpulseRPC),
+        /// поэтому если мы не мастер — просим применить мастера за нас,
+        /// а не вызываем avatar.ForceImpulse напрямую.
+        /// </summary>
+        public void RequestKick(Vector3 force)
+        {
+            if (SemiFunc.IsMasterClientOrSingleplayer())
+            {
+                // Мы и есть мастер (или синглплеер) — можно сразу
+                _avatar.ForceImpulse(force);
+                return;
+            }
+
+            if (_photonView == null)
+            {
+                SemiKick.LogWarning($"[SemiKick] KickAnimHandler.RequestKick: _photonView == null, пинок не отправлен.");
+                return;
+            }
+
+            // Мы гость — просим мастера пнуть за нас
+            _photonView.RPC(nameof(RequestKickRPC), RpcTarget.MasterClient, force);
+        }
+
+        [PunRPC]
+        private void RequestKickRPC(Vector3 force, PhotonMessageInfo _info = default)
+        {
+            // Выполнится на компьютере мастера, на ЕГО копии этого же PlayerAvatar
+            _avatar.ForceImpulse(force);
         }
     }
 }

@@ -1,8 +1,40 @@
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
-using Newtonsoft.Json.Linq;
+
+
+[Serializable]
+public class AnimationData
+{
+    public float duration;
+    public List<FrameData> frames;
+}
+
+[Serializable]
+public class FrameData
+{
+    public float time;
+    public Dictionary<string, BoneRotation> bones;
+}
+
+[Serializable]
+public struct BoneRotation
+{
+    public float x, y, z, w;
+    public Quaternion ToQuaternion() => new Quaternion(x, y, z, w);
+}
+
+// Оптимизированная структура для рантайма (без строк)
+public struct RuntimeFrame
+{
+    public float time;
+    public Quaternion[] rotations; // Индекс совпадает с индексом в кэше костей
+}
+
 
 /// <summary>
 /// Проигрывает анимацию, экспортированную из Blender в JSON, напрямую крутя
@@ -14,141 +46,252 @@ public class KickAnimationPlayer : MonoBehaviour
     // Карта соответствия: имя кости в Blender -> ИМЯ ТРАНСФОРМА В UNITY (без путей!)
     private static readonly Dictionary<string, string> BoneMap = new Dictionary<string, string>
     {
-        { "Bone", "ANIM BODY BOT SCALE" }, // Таз / тело
+        //{ "Bone", "ANIM BODY BOT SCALE" }, // Таз / тело
+        //{ "Bone.003", "ANIM HEAD BOT" },   // Голова
+        //{ "Bone.004", "ANIM LEG R BOT" },  // Правая нога
+        //{ "Bone.005", "ANIM LEG L BOT" },  // Левая нога
+        //{ "Bone.006", "ANIM ARM L" },      // Левая рука
+        //{ "Bone.007", "ANIM ARM R" },      // Правая рука
+        { "Bone", "ANIM BODY BOT" }, // Таз / тело
         { "Bone.003", "ANIM HEAD BOT" },   // Голова
-        { "Bone.004", "ANIM LEG R BOT" },  // Правая нога
-        { "Bone.005", "ANIM LEG L BOT" },  // Левая нога
-        { "Bone.006", "ANIM ARM L" },      // Левая рука
-        { "Bone.007", "ANIM ARM R" },      // Правая рука
+        { "Bone.004", "Player Spring Impulse - Leg Right" },  // Правая нога
+        { "Bone.005", "Player Spring Impulse - Leg Left" },  // Левая нога
+        { "Bone.006", "Player Spring Impulse - Arm Left" },      // Левая рука
+        { "Bone.007", "Player Spring Impulse - Arm Right" },      // Правая рука
     };
 
-    // Закэшированные ссылки: имя кости Blender -> реальный Transform в игре
-    private readonly Dictionary<string, Transform> boneCache = new Dictionary<string, Transform>();
+    // Кэш трансформов в виде массива для доступа по индексу (быстрее словаря)
+    private Transform[] boneTransforms;
+    // Кэш имен костей Blender, чтобы сопоставить их с индексами массива
+    private string[] blenderBoneNames;
 
-    private JObject animData;
+    private RuntimeFrame[] runtimeFrames;
+    private float totalDuration;
     private bool isReady;
     private bool isPlaying;
 
-    /// <summary>
-    /// Вызывается один раз при спавне игрока.
-    /// </summary>
     public void Initialize(string jsonPath, Transform rigRoot)
     {
-        if (!GameManager.Multiplayer() && SemiFunc.PlayerGetAll().Count < 2) return;
+        Debug.Log($"[JSONAnimation] Initialize вызван: jsonPath={jsonPath}, rigRoot={(rigRoot != null ? rigRoot.name : "NULL")}");
 
-        // 1) Ищем трансформы рекурсивно по имени среди всех дочерних объектов rigRoot
+        // 1. Ищем только существующие кости и сохраняем их во временные списки
+        var foundTransforms = new List<Transform>();
+        var foundBlenderNames = new List<string>();
+
         foreach (var kvp in BoneMap)
         {
-            string blenderBone = kvp.Key;
-            string targetGameObjectName = kvp.Value;
-
-            Transform foundTransform = FindDeepChild(rigRoot, targetGameObjectName);
-
-            if (foundTransform != null)
+            Transform found = FindDeepChild(rigRoot, kvp.Value);
+            if (found != null)
             {
-                boneCache[blenderBone] = foundTransform;
-                Debug.Log($"[KickAnimationPlayer] Кость '{blenderBone}' успешно привязана к '{foundTransform.name}'");
+                foundTransforms.Add(found);
+                foundBlenderNames.Add(kvp.Key);
+                Debug.Log($"[JSONAnimation] Привязана кость: blenderName={kvp.Key} -> unityName='{kvp.Value}', path={GetHierarchyPath(found)}");
             }
             else
             {
-                Debug.LogWarning($"[KickAnimationPlayer] Не найден объект с именем '{targetGameObjectName}' для кости '{blenderBone}'!");
+                Debug.LogWarning($"[JSONAnimation] НЕ найдена кость: blenderName={kvp.Key}, ожидалось имя в Unity='{kvp.Value}' (FindDeepChild не нашёл такого объекта под {(rigRoot != null ? rigRoot.name : "NULL")}).");
             }
         }
 
-        // 2) Загружаем JSON с данными анимации один раз
-        if (File.Exists(jsonPath))
+        // Фиксируем массивы под РЕАЛЬНОЕ количество найденных костей
+        boneTransforms = foundTransforms.ToArray();
+        blenderBoneNames = foundBlenderNames.ToArray();
+        int actualBoneCount = boneTransforms.Length;
+
+        Debug.Log($"[JSONAnimation] Итог поиска костей: найдено {actualBoneCount}/{BoneMap.Count}.");
+
+        bool fileExists = File.Exists(jsonPath);
+        Debug.Log($"[JSONAnimation] Проверка файла анимации: fileExists={fileExists}, path={jsonPath}");
+
+        // 2. Загружаем и пересобираем данные
+        if (fileExists && actualBoneCount > 0)
         {
             string text = File.ReadAllText(jsonPath);
-            animData = JObject.Parse(text);
+            Debug.Log($"[JSONAnimation] JSON прочитан, длина текста={text.Length} символов. Десериализую...");
+
+            var rawData = JsonConvert.DeserializeObject<AnimationData>(text);
+
+            if (rawData == null)
+            {
+                Debug.LogError("[JSONAnimation] JsonConvert.DeserializeObject вернул NULL — файл битый или не соответствует структуре AnimationData. Анимация не будет готова.");
+                return;
+            }
+
+            if (rawData.frames == null || rawData.frames.Count == 0)
+            {
+                Debug.LogError($"[JSONAnimation] rawData.frames пуст или NULL (duration={rawData.duration}). Анимация не будет готова.");
+                return;
+            }
+
+            totalDuration = rawData.duration;
+            runtimeFrames = new RuntimeFrame[rawData.frames.Count];
+
+            Debug.Log($"[JSONAnimation] Десериализация ок: duration={totalDuration}, framesCount={rawData.frames.Count}. Пересобираю в RuntimeFrame...");
+
+            int missingBoneSamples = 0;
+
+            for (int f = 0; f < rawData.frames.Count; f++)
+            {
+                var sourceFrame = rawData.frames[f];
+                runtimeFrames[f].time = sourceFrame.time;
+
+                // Создаем массив ротаций только для найденных костей
+                runtimeFrames[f].rotations = new Quaternion[actualBoneCount];
+
+                for (int b = 0; b < actualBoneCount; b++)
+                {
+                    string bName = blenderBoneNames[b];
+                    if (sourceFrame.bones != null && sourceFrame.bones.TryGetValue(bName, out BoneRotation rot))
+                    {
+                        runtimeFrames[f].rotations[b] = rot.ToQuaternion();
+                    }
+                    else
+                    {
+                        // Если кость есть в игре, но ее забыли анимировать в Blender, 
+                        // используем текущий поворот, чтобы ее не "скрутило" в Quaternion.identity
+                        runtimeFrames[f].rotations[b] = boneTransforms[b].localRotation;
+                        missingBoneSamples++;
+                    }
+                }
+            }
+
+            if (missingBoneSamples > 0)
+            {
+                Debug.LogWarning($"[JSONAnimation] В {missingBoneSamples} случаях (кадр x кость) в JSON не было данных для найденной кости — использован текущий localRotation как фоллбэк. Если это не задумано, проверьте имена костей в Blender-экспорте.");
+            }
+
             isReady = true;
+            Debug.Log($"[JSONAnimation] Initialize завершён успешно: isReady=true, totalDuration={totalDuration}, framesCount={runtimeFrames.Length}, boneCount={actualBoneCount}.");
         }
         else
         {
-            Debug.LogError($"[KickAnimationPlayer] JSON не найден: {jsonPath}");
+            Debug.LogWarning($"[JSONAnimation] Initialize НЕ завершился (isReady останется false): fileExists={fileExists}, actualBoneCount={actualBoneCount}. " +
+                (!fileExists ? "Файл kick_animation.json не найден по указанному пути. " : "") +
+                (actualBoneCount == 0 ? "Ни одна кость из BoneMap не найдена в rigRoot — проверьте иерархию/имена." : ""));
         }
     }
 
-    /// <summary>
-    /// Рекурсивный поиск дочернего Transform по точному совпадению имени.
-    /// </summary>
-    private Transform FindDeepChild(Transform parent, string targetName)
+    private static string GetHierarchyPath(Transform t)
     {
-        if (parent.name == targetName) return parent;
-
-        foreach (Transform child in parent)
+        if (t == null) return "NULL";
+        string path = t.name;
+        var current = t.parent;
+        while (current != null)
         {
-            Transform result = FindDeepChild(child, targetName);
-            if (result != null) return result;
+            path = current.name + "/" + path;
+            current = current.parent;
         }
-
-        return null;
+        return path;
     }
 
-    public void PlayKick()
-    {
-        if (!isReady || isPlaying) return;
-        StartCoroutine(RunKick());
-    }
+    private RuntimeFrame currentFrameA, currentFrameB;
+    private float currentT;
+    private bool hasFrameToApply;
 
     private IEnumerator RunKick()
     {
         isPlaying = true;
-
-        var frames = (JArray)animData["frames"];
-        float duration = animData["duration"].Value<float>();
-
         float startTime = Time.time;
         int currentFrameIndex = 0;
+        int frameCount = runtimeFrames.Length;
+        int loggedFrameIndex = -1;
 
-        while (Time.time - startTime < duration)
+        Debug.Log($"[JSONAnimation] RunKick стартовал: startTime={startTime}, totalDuration={totalDuration}, frameCount={frameCount}, boneCount={boneTransforms?.Length ?? 0}.");
+
+        while (Time.time - startTime < totalDuration)
         {
             float elapsed = Time.time - startTime;
 
-            // Находим два соседних кадра для интерполяции
-            while (currentFrameIndex < frames.Count - 1 &&
-                   frames[currentFrameIndex + 1]["time"].Value<float>() <= elapsed)
+            while (currentFrameIndex < frameCount - 1 &&
+                   runtimeFrames[currentFrameIndex + 1].time <= elapsed)
             {
                 currentFrameIndex++;
             }
 
-            var frameA = frames[currentFrameIndex];
-            var frameB = frames[Mathf.Min(currentFrameIndex + 1, frames.Count - 1)];
-
-            float timeA = frameA["time"].Value<float>();
-            float timeB = frameB["time"].Value<float>();
-            float segmentLength = Mathf.Max(0.0001f, timeB - timeA);
-            float t = Mathf.Clamp01((elapsed - timeA) / segmentLength);
-
-            var bonesA = (JObject)frameA["bones"];
-            var bonesB = (JObject)frameB["bones"];
-
-            // Применяем поворот из кэша (0 поиска во время игры)
-            foreach (var kvp in boneCache)
+            if (currentFrameIndex != loggedFrameIndex)
             {
-                string boneName = kvp.Key;
-                Transform boneTransform = kvp.Value;
-
-                if (bonesA[boneName] == null || bonesB[boneName] == null) continue;
-
-                Quaternion qA = ReadQuat(bonesA[boneName]);
-                Quaternion qB = ReadQuat(bonesB[boneName]);
-
-                boneTransform.localRotation = Quaternion.Slerp(qA, qB, t);
+                Debug.Log($"[JSONAnimation] RunKick: переход на кадр {currentFrameIndex}/{frameCount - 1} (time={runtimeFrames[currentFrameIndex].time}, elapsed={elapsed:F3}).");
+                loggedFrameIndex = currentFrameIndex;
             }
+
+            currentFrameA = runtimeFrames[currentFrameIndex];
+            currentFrameB = runtimeFrames[Mathf.Min(currentFrameIndex + 1, frameCount - 1)];
+            currentT = Mathf.InverseLerp(currentFrameA.time, currentFrameB.time, elapsed);
+            hasFrameToApply = true;
 
             yield return null;
         }
 
         isPlaying = false;
+        hasFrameToApply = false;
+
+        Debug.Log($"[JSONAnimation] RunKick завершён: реальная длительность={Time.time - startTime:F3} (ожидалось totalDuration={totalDuration}).");
     }
 
-    private static Quaternion ReadQuat(JToken bone)
+    private bool _loggedFirstApply;
+    private bool _loggedNullBoneWarning;
+
+    private void LateUpdate()
     {
-        return new Quaternion(
-            bone["x"].Value<float>(),
-            bone["y"].Value<float>(),
-            bone["z"].Value<float>(),
-            bone["w"].Value<float>()
-        );
+        if (!hasFrameToApply)
+        {
+            _loggedFirstApply = false;
+            return;
+        }
+
+        if (!_loggedFirstApply)
+        {
+            Debug.Log($"[JSONAnimation] LateUpdate: начал применять ротации к {boneTransforms.Length} костям.");
+            _loggedFirstApply = true;
+        }
+
+        for (int i = 0; i < boneTransforms.Length; i++)
+        {
+            if (boneTransforms[i] == null)
+            {
+                if (!_loggedNullBoneWarning)
+                {
+                    Debug.LogWarning($"[JSONAnimation] LateUpdate: boneTransforms[{i}] == NULL (кость уничтожена/недоступна?), пропускаю. Дальнейшие такие предупреждения на этот проигрыш подавлены.");
+                    _loggedNullBoneWarning = true;
+                }
+                continue;
+            }
+
+            boneTransforms[i].localRotation = Quaternion.Slerp(
+                currentFrameA.rotations[i],
+                currentFrameB.rotations[i],
+                currentT
+            );
+        }
+    }
+
+    private Transform FindDeepChild(Transform parent, string targetName)
+    {
+        if (parent.name == targetName) return parent;
+        foreach (Transform child in parent)
+        {
+            Transform result = FindDeepChild(child, targetName);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    public void PlayKick()
+    {
+        Debug.Log($"[JSONAnimation] PlayKick вызван: isReady={isReady}, isPlaying={isPlaying}, gameObject={name}.");
+
+        if (!isReady)
+        {
+            Debug.LogWarning($"[JSONAnimation] PlayKick: isReady=false, анимация не запущена (Initialize не завершился успешно — см. логи выше).");
+            return;
+        }
+
+        if (isPlaying)
+        {
+            Debug.LogWarning($"[JSONAnimation] PlayKick: анимация уже проигрывается (isPlaying=true), повторный запуск пропущен.");
+            return;
+        }
+
+        StartCoroutine(RunKick());
     }
 }

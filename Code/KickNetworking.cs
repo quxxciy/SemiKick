@@ -19,7 +19,17 @@ namespace SemiKick
     {
         public static void ApplyKickToPlayer(PlayerAvatar player, Vector3 force)
         {
-            player.ForceImpulse(force);
+            var handler = player.gameObject.GetComponent<KickAnimHandler>();
+            if (handler != null)
+            {
+                handler.RequestKick(force);
+            }
+            else
+            {
+                // fallback на случай, если по какой-то причине хендлера нет
+                SemiKick.LogWarning($"[SemiKick] ApplyKickToPlayer: у {player.name} нет KickAnimHandler, пинок может не сработать у гостей.");
+                player.ForceImpulse(force);
+            }
         }
 
         /// <summary>

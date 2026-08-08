@@ -13,32 +13,33 @@ namespace SemiKick
     public class SemiKick : BaseUnityPlugin
     {
         private Harmony harmony;
-
         private Keybind kickKeybind;
-        internal static ManualLogSource Log;
         private static bool runnerCreated = false;
+
+        internal static ManualLogSource LoggerInstance;
 
         void Awake()
         {
-            Log = Logger;
-            kickKeybind = Keybinds.Bind("General", "Kick", "<Keyboard>/f");
+            LoggerInstance = Logger;
 
+            // Инициализируем конфиг ДО первых логов
             SemiKickConfig.Init(Config);
 
-            Logger.LogInfo("SemiKick загружен, бинд зарегистрирован.");
+            kickKeybind = Keybinds.Bind("General", "Kick", "<Keyboard>/f");
+
+            LogInfo("SemiKick загружен, бинд зарегистрирован.");
 
             harmony = new Harmony("quxxciy.semikick");
             harmony.PatchAll();
 
-            // не создаём Runner сразу — ждём первой реальной загрузки сцены
             SceneManager.sceneLoaded += OnSceneLoaded;
         }
 
         private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
         {
-            if (runnerCreated) return; // создаём только один раз
+            if (runnerCreated) return;
 
-            Logger.LogInfo($"Первая сцена загружена: {scene.name}, создаю Runner.");
+            LogInfo($"Первая сцена загружена: {scene.name}, создаю Runner.");
 
             var runnerObj = new GameObject("SemiKickRunner");
             Object.DontDestroyOnLoad(runnerObj);
@@ -46,7 +47,28 @@ namespace SemiKick
             runner.InitKey(kickKeybind);
 
             runnerCreated = true;
-            SceneManager.sceneLoaded -= OnSceneLoaded; // больше не нужно, отписываемся
+            SceneManager.sceneLoaded -= OnSceneLoaded;
         }
+
+        #region Helper Logging Methods
+
+        public static void Log(LogLevel level, object data)
+        {
+            // 1. Проверяем, включены ли логи
+            if (!SemiKickConfig.EnableLogging.Value) return;
+
+            // 2. Проверяем, проходит ли уровень лога по порогу
+            if ((SemiKickConfig.MinLogLevel.Value & level) != 0 || level >= SemiKickConfig.MinLogLevel.Value)
+            {
+                LoggerInstance?.Log(level, data);
+            }
+        }
+
+        public static void LogInfo(object data) => Log(LogLevel.Info, data);
+        public static void LogDebug(object data) => Log(LogLevel.Debug, data);
+        public static void LogWarning(object data) => Log(LogLevel.Warning, data);
+        public static void LogError(object data) => Log(LogLevel.Error, data);
+
+        #endregion
     }
 }
