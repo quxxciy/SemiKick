@@ -96,6 +96,9 @@
     <Compile Include="Code\KickNetworking.cs" />
     <Compile Include="Code\KickTargetClassifier.cs" />
     <Compile Include="Code\SemiKick.cs" />
+    <Compile Include="Code\SemiKick.ItemBundle.cs" />
+    <Compile Include="Code\SemiKick.Logging.cs" />
+    <Compile Include="Code\SemiKick.Upgrades.cs" />
     <Compile Include="Code\SemiKickConfig.cs" />
     <Compile Include="Code\SemiKickRunner.cs" />
     <Compile Include="Code\ValuableKickReceiver.cs" />

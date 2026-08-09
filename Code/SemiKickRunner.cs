@@ -50,6 +50,27 @@ namespace SemiKick
         }
 
         /// <summary>
+        /// Реальный уровень апгрейда локального игрока (из
+        /// KickAnimHandler.KickLevel, который наполняется REPOLib-колбэками
+        /// в SemiKick.cs) + debug-добавка из SemiKickConfig.KickLevel.
+        /// Так конфиг остаётся рабочим инструментом для теста баланса без
+        /// похода в магазин, но не подменяет собой реальную прокачку.
+        /// </summary>
+        private int GetEffectiveKickLevel()
+        {
+            int realLevel = localPlayerHandler != null ? localPlayerHandler.KickLevel : 0;
+            int debugAddon = SemiKickConfig.KickLevel.Value;
+            int total = realLevel + debugAddon;
+
+            if (debugAddon != 0)
+            {
+                SemiKick.LogInfo($"GetEffectiveKickLevel: realLevel={realLevel}, debugAddon={debugAddon} (из конфига), итог={total}.");
+            }
+
+            return total;
+        }
+
+        /// <summary>
         /// Рейкаст + классификация цели. Раньше это была первая часть
         /// DoPhysicsRaycast; вынесено отдельно, т.к. точку попадания теперь
         /// нужно получить ДО запуска анимации (для стретча ноги), а не
@@ -125,12 +146,14 @@ namespace SemiKick
             }
 
             Vector3 direction = Camera.main.transform.forward;
+
+            int effectiveLevel = GetEffectiveKickLevel();
             float force = KickForceCalculator.GetBaseKickForce(
                 baseForce: SemiKickConfig.BaseForce.Value,
-                kickLevel: SemiKickConfig.KickLevel.Value,
+                kickLevel: effectiveLevel,
                 levelMultiplier: SemiKickConfig.LevelMultiplier.Value);
 
-            SemiKick.LogInfo($"ApplyKickEffects: рассчитанная сила force={force} (baseForce={SemiKickConfig.BaseForce.Value}, kickLevel={SemiKickConfig.KickLevel.Value}, levelMultiplier={SemiKickConfig.LevelMultiplier.Value})");
+            SemiKick.LogInfo($"ApplyKickEffects: рассчитанная сила force={force} (baseForce={SemiKickConfig.BaseForce.Value}, effectiveLevel={effectiveLevel}, levelMultiplier={SemiKickConfig.LevelMultiplier.Value})");
 
             float shakeStrength = Mathf.Clamp(
                 force * SemiKickConfig.ShakeForceMultiplier.Value,

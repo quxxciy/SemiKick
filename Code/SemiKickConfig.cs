@@ -65,7 +65,11 @@ namespace SemiKick
             );
 
             BaseForce = config.Bind("Kick", "BaseForce", 0.70f, "Базовая сила пинка (до апгрейдов).");
-            KickLevel = config.Bind("Kick", "KickLevel", 0, "Текущий уровень апгрейда силы пинка.");
+            KickLevel = config.Bind("Kick", "KickLevel", 0,
+                "DEBUG: добавка к реальному уровню апгрейда (который приходит из REPOLib-магазина, " +
+                "per-player, см. KickAnimHandler.KickLevel). Итоговый уровень = уровень апгрейда " +
+                "локального игрока + это значение. Позволяет тестировать баланс без похода в магазин. " +
+                "В релизе держать на 0, чтобы не путать реальную прокачку с дебагом.");
             LevelMultiplier = config.Bind("Kick", "LevelMultiplier", 0.5f, "Множитель силы за уровень.");
 
             ShakeForceMultiplier = config.Bind("Camera", "ShakeForceMultiplier", 0.05f, "Множитель: сила пинка -> сила тряски камеры.");

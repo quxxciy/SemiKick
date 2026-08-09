@@ -18,7 +18,8 @@ namespace SemiKick
     {
         public static float GetBaseKickForce(float baseForce, int kickLevel, float levelMultiplier)
         {
-            return baseForce * (1 + kickLevel * levelMultiplier);
+            // (было 1 до 10.08.26)
+            return baseForce * (2 + kickLevel * levelMultiplier);
         }
     }
 }

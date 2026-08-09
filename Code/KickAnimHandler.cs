@@ -12,6 +12,28 @@ namespace SemiKick
         private PlayerController pc;
         public PlayerAvatar Avatar => _avatar;
 
+        /// <summary>
+        /// Реальный уровень апгрейда силы пинка ЭТОГО игрока (приходит из
+        /// REPOLib Upgrades.RegisterUpgrade -> OnUpgradeStart/OnUpgradeApplied
+        /// в SemiKick.cs, per-player, персистентно между раундами).
+        /// НЕ путать с SemiKickConfig.KickLevel — тот теперь просто debug-
+        /// добавка поверх этого значения, см. SemiKickRunner.GetEffectiveKickLevel.
+        /// </summary>
+        public int KickLevel { get; private set; } = 0;
+
+        /// <summary>
+        /// Может прийти РАНЬШЕ Initialize (если OnUpgradeStart/OnUpgradeApplied
+        /// сработает для этого PlayerAvatar до того, как PlayerAvatarVisualsPatch
+        /// успеет создать и проинициализировать KickAnimHandler) — level в этом
+        /// случае просто сохранится в поле и будет использован сразу, порядок
+        /// вызовов не важен.
+        /// </summary>
+        public void SetKickLevel(int level)
+        {
+            SemiKick.LogInfo($"[SemiKick] KickAnimHandler.SetKickLevel: {(_avatar != null ? _avatar.name : name)} -> level={level} (было {KickLevel}).");
+            KickLevel = level;
+        }
+
         public void Initialize(KickAnimationPlayer animPlayer, PlayerAvatar avatar)
         {
             pc = GameObject.FindFirstObjectByType<PlayerController>();
