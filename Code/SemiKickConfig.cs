@@ -33,6 +33,12 @@ namespace SemiKick
         // --- Анимация (JSON из Blender) ---
         public static ConfigEntry<int> AnimationConversionMode;
 
+        // --- Стретч кости правой ноги (аналог "дотягивания" руки в самой игре) ---
+        public static ConfigEntry<float> LegStretchNaturalReach;
+        public static ConfigEntry<float> LegStretchMaxMultiplier;
+        public static ConfigEntry<int> LegStretchAxis;
+        public static ConfigEntry<float> LegStretchLerpSpeed;
+
         // --- Knockback / отдача ---
         public static ConfigEntry<float> KnockbackSoftThreshold;
         public static ConfigEntry<float> KnockbackHardThreshold;
@@ -73,6 +79,19 @@ namespace SemiKick
                 "0=без изменений, 1=инверсия X, 2=инверсия Y, 3=инверсия Z, " +
                 "4=инверсия X+Y, 5=инверсия X+Z, 6=инверсия Y+Z, 7=инверсия X+Y+Z. " +
                 "Требует перезахода на уровень/переспавна аватара, т.к. читается один раз при Initialize.");
+
+            LegStretchNaturalReach = config.Bind("LegStretch", "NaturalReach", 1.0f,
+                "Дистанция (метры) от кости правой ноги до точки попадания, до которой стретч НЕ включается — " +
+                "нога 'и так дотягивается'. Взято на глаз, не подтверждено анимацией/размером рига — подобрать на плейтесте.");
+            LegStretchMaxMultiplier = config.Bind("LegStretch", "MaxMultiplier", 1.8f,
+                "Максимальный множитель localScale по оси стретча (ограничивает, чтобы нога не улетала в бесконечность на дальних рейкастах).");
+            LegStretchAxis = config.Bind("LegStretch", "Axis", 1,
+                "По какой ЛОКАЛЬНОЙ оси кости 'Player Spring Impulse - Leg Right' растягиваем: 0=X, 1=Y, 2=Z. " +
+                "НЕ проверено, какая ось у этой кости соответствует направлению 'вдоль ноги' — перебрать 0/1/2 на " +
+                "плейтесте, как и с AnimationConversionMode. Неверная ось растянет ногу вбок/не туда.");
+            LegStretchLerpSpeed = config.Bind("LegStretch", "LerpSpeed", 8f,
+                "Скорость плавного перехода scale к целевому значению стретча (Mathf.Lerp * Time.deltaTime * это). " +
+                "Больше — резче/быстрее реагирует на дистанцию, меньше — плавнее, но может не успеть за коротким пинком.");
 
             KnockbackSoftThreshold = config.Bind("Knockback", "SoftThreshold", 1.5f,
                 "targetMass/kickForce выше этого значения -> лёгкая отдача без тамбла.");

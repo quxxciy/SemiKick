@@ -1,0 +1,28 @@
+{
+  "m_GameObject": {
+    "m_FileID": 0,
+    "m_PathID": 0
+  },
+  "m_Enabled": 1,
+  "m_Script": {
+    "m_FileID": 0,
+    "m_PathID": -2817889140637624519
+  },
+  "m_Name": "Mod",
+  "_name": "SelfReviveUpgrade",
+  "_author": "McHorse",
+  "_version": "1.0.0",
+  "_description": "",
+  "_websiteUrl": "",
+  "_dependencies": [
+    "Zehs-REPOLib-3.0.4"
+  ],
+  "_icon": {
+    "m_FileID": 0,
+    "m_PathID": 0
+  },
+  "_readme": {
+    "m_FileID": 0,
+    "m_PathID": 0
+  }
+}

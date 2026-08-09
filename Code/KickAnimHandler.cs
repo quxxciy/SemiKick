@@ -14,7 +14,7 @@ namespace SemiKick
 
         public void Initialize(KickAnimationPlayer animPlayer, PlayerAvatar avatar)
         {
-            pc = GameObject.Find("Controller").GetComponent<PlayerController>();
+            pc = GameObject.FindFirstObjectByType<PlayerController>();
             if (pc == null ) SemiKick.LogWarning("[KickAnimHandler] PlayerController не найден на сцене!");
             _animPlayer = animPlayer;
             _avatar = avatar;
@@ -57,20 +57,29 @@ namespace SemiKick
             SemiKick.LogInfo($"[SemiKick] KickAnimHandler успешно инициализирован (Local: {_isLocal}, ViewID: {_photonView.ViewID})");
         }
 
-        // Этот метод вызывает только локальный игрок из Runner
-        public void PerformKick()
+        // Этот метод вызывает только локальный игрок из Runner.
+        // stretchTargetWorldPos — точка (hit.point рейкаста пинка), до
+        // которой нога тянется стретчем в KickAnimationPlayer. SemiKickRunner
+        // теперь обязан сначала сделать рейкаст/классификацию и только потом
+        // звать PerformKick — иначе точки ещё не будет существовать.
+        public void PerformKick(Vector3? stretchTargetWorldPos = null)
         {
-            Debug.Log($"[JSONAnimation] KickAnimHandler.PerformKick вызван для {(_avatar != null ? _avatar.name : "NULL")}: _animPlayer={(_animPlayer != null ? "не NULL" : "NULL")}, Multiplayer={GameManager.Multiplayer()}.");
+            Debug.Log($"[JSONAnimation] KickAnimHandler.PerformKick вызван для {(_avatar != null ? _avatar.name : "NULL")}: _animPlayer={(_animPlayer != null ? "не NULL" : "NULL")}, Multiplayer={GameManager.Multiplayer()}, stretchTarget={(stretchTargetWorldPos.HasValue ? stretchTargetWorldPos.Value.ToString() : "NULL")}.");
 
             if (_animPlayer != null)
             {
-                _animPlayer.PlayKick();
+                _animPlayer.PlayKick(stretchTargetWorldPos);
             }
             else
             {
                 Debug.LogWarning($"[JSONAnimation] KickAnimHandler.PerformKick: _animPlayer == NULL — анимация физически не может проиграться, т.к. компонент не был передан при Initialize (см. PlayerAvatarVisualsPatch).");
             }
 
+            // ⚠️ RPC_PlayKick намеренно без stretchTargetWorldPos — точка
+            // попадания известна только кикеру (это его локальный рейкаст),
+            // синхронизировать её отдельным полем в RPC не стали. У других
+            // клиентов анимация проиграется БЕЗ стретча ноги (нога не будет
+            // тянуться визуально для зрителей, только у самого кикера).
             if (_photonView != null && GameManager.Multiplayer())
             {
                 _photonView.RPC(nameof(RPC_PlayKick), RpcTarget.Others);
@@ -138,12 +147,35 @@ namespace SemiKick
 
         private IEnumerator DelayedKickCoroutine(System.Action applyAction)
         {
-            if (pc == null) SemiKick.LogWarning("[KickAnimHandler.DelayedKickCoroutine] PlayerController не найден на сцене!");
-            if (pc != null) pc.enabled = false;
-            // Ждём 1.5 секунды (пока замахивается нога в анимации)
-            yield return new WaitForSeconds(0.5f);
-            if (pc != null) pc.enabled = true;
+            if (pc == null)
+            {
+                SemiKick.LogWarning("[KickAnimHandler.DelayedKickCoroutine] PlayerController не найден на сцене! Если что сейчас мод ляжет НАХУЙ, хорошо?");
+            }
 
+            pc.enabled = false;
+            yield return new WaitForSeconds(0.5f);
+
+            float duration = 0.11f;
+            float totalKick = 49.04f;
+            float elapsed = 0f;
+            float lastHeight = 0f;
+
+            while (elapsed < duration)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.Min(1f, elapsed / duration);
+
+                float smoothedT = Mathf.Sin(t * Mathf.PI * 0.5f);
+                float currentHeight = totalKick * smoothedT;
+
+                float frameDelta = currentHeight - lastHeight;
+                CameraAim.Instance.AdditiveAimY(-frameDelta);
+
+                lastHeight = currentHeight;
+                yield return null;
+            }
+
+            pc.enabled = true;
             applyAction?.Invoke();
         }
         [PunRPC]

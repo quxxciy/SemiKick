@@ -1,0 +1,14 @@
+{
+  "m_GameObject": {
+    "m_FileID": 0,
+    "m_PathID": 0
+  },
+  "m_Enabled": 1,
+  "m_Script": {
+    "m_FileID": 0,
+    "m_PathID": -403788874526291013
+  },
+  "m_Name": "Value High+",
+  "valueMin": 9500.0,
+  "valueMax": 12000.0
+}

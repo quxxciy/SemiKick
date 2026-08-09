@@ -1,0 +1,23 @@
+{
+  "m_GameObject": {
+    "m_FileID": 0,
+    "m_PathID": -959915078460652318
+  },
+  "m_Enabled": 1,
+  "m_Script": {
+    "m_FileID": 0,
+    "m_PathID": 7982429848299593374
+  },
+  "m_Name": "",
+  "lineBetweenTwoPoints": {
+    "m_FileID": 0,
+    "m_PathID": 6336488842410942803
+  },
+  "hasSpheres": 1,
+  "lineColor": {
+    "r": 0.0,
+    "g": 0.33720446,
+    "b": 1.0,
+    "a": 1.0
+  }
+}

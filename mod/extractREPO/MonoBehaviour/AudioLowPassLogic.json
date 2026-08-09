@@ -1,0 +1,19 @@
+{
+  "m_GameObject": {
+    "m_FileID": 0,
+    "m_PathID": -959915078460652318
+  },
+  "m_Enabled": 1,
+  "m_Script": {
+    "m_FileID": 0,
+    "m_PathID": -5728488473472180836
+  },
+  "m_Name": "",
+  "LowPass": 0,
+  "ForceStart": 0,
+  "AlwaysActive": 0,
+  "HasCustomVolume": 0,
+  "CustomVolume": 0.5,
+  "HasCustomFalloff": 0,
+  "CustomFalloff": 0.8
+}

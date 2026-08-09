@@ -1,0 +1,30 @@
+{
+  "m_GameObject": {
+    "m_FileID": 0,
+    "m_PathID": 0
+  },
+  "m_Enabled": 1,
+  "m_Script": {
+    "m_FileID": 0,
+    "m_PathID": -1556387995586844767
+  },
+  "m_Name": "Preset Color Battery",
+  "colorMain": {
+    "r": 1.0,
+    "g": 0.78845626,
+    "b": 0.0,
+    "a": 1.0
+  },
+  "colorLight": {
+    "r": 1.0,
+    "g": 0.9914961,
+    "b": 0.0,
+    "a": 1.0
+  },
+  "colorDark": {
+    "r": 1.0,
+    "g": 0.65038824,
+    "b": 0.0,
+    "a": 1.0
+  }
+}

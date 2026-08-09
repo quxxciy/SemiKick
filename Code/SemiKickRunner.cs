@@ -28,61 +28,84 @@ namespace SemiKick
             if (SemiFunc.InputDown(kickKeybind.inputKey))
             {
                 if (cooldownTimer > 0f) return;
+
+                // ВАЖНО: рейкаст+классификация теперь идут ПЕРВЫМ делом, а не
+                // после PerformKick, как было раньше. Причина — стретч ноги
+                // в KickAnimationPlayer (см. ApplyLegStretch) должен знать
+                // точку попадания ДО старта анимации, а не постфактум.
+                bool found = TryFindKickTarget(out RaycastHit hit, out KickTarget target);
+                Vector3? stretchTargetWorldPos = found ? (Vector3?)hit.point : null;
+
                 if (localPlayerHandler != null)
                 {
-                    localPlayerHandler.PerformKick();
+                    localPlayerHandler.PerformKick(stretchTargetWorldPos);
                 }
                 else
                 {
                     SemiKick.LogWarning("SemiKickRunner.Update: localPlayerHandler == null, PerformKick пропущен.");
                 }
 
-                DoPhysicsRaycast();
+                ApplyKickEffects(found, hit, target);
             }
         }
 
-        private void DoPhysicsRaycast()
+        /// <summary>
+        /// Рейкаст + классификация цели. Раньше это была первая часть
+        /// DoPhysicsRaycast; вынесено отдельно, т.к. точку попадания теперь
+        /// нужно получить ДО запуска анимации (для стретча ноги), а не
+        /// после неё.
+        /// </summary>
+        private bool TryFindKickTarget(out RaycastHit hit, out KickTarget target)
         {
+            hit = default;
+            target = default;
+
             var ray = new Ray(Camera.main.transform.position, Camera.main.transform.forward);
-            var allHits = Physics.RaycastAll(ray, 1.3f);
+            var allHits = Physics.RaycastAll(ray, 2.3f);
             if (allHits.Length == 0)
             {
-                SemiKick.LogInfo("DoPhysicsRaycast: рейкаст ни во что не попал.");
-                return;
+                SemiKick.LogInfo("TryFindKickTarget: рейкаст ни во что не попал.");
+                return false;
             }
 
             System.Array.Sort(allHits, (a, b) => a.distance.CompareTo(b.distance));
-
-            RaycastHit hit = default;
-            KickTarget target = default;
-            bool found = false;
 
             PlayerAvatar selfAvatar = localPlayerHandler != null ? localPlayerHandler.Avatar : null;
 
             foreach (var candidate in allHits)
             {
-                SemiKick.LogInfo($"DoPhysicsRaycast: попадание в коллайдер '{candidate.collider.name}' на объекте '{candidate.collider.gameObject.name}'.");
+                SemiKick.LogInfo($"TryFindKickTarget: попадание в коллайдер '{candidate.collider.name}' на объекте '{candidate.collider.gameObject.name}'.");
 
                 var candidateTarget = KickTargetClassifier.ClassifyHit(candidate.collider);
-                SemiKick.LogInfo($"DoPhysicsRaycast: классификация -> Type={candidateTarget.Type}, Component={(candidateTarget.Component != null ? candidateTarget.Component.GetType().Name : "NULL")}");
+                SemiKick.LogInfo($"TryFindKickTarget: классификация -> Type={candidateTarget.Type}, Component={(candidateTarget.Component != null ? candidateTarget.Component.GetType().Name : "NULL")}");
 
                 if (candidateTarget.Type == KickTargetType.Player
                     && selfAvatar != null
                     && ReferenceEquals(candidateTarget.Component, selfAvatar))
                 {
-                    SemiKick.LogInfo("DoPhysicsRaycast: попадание в СВОЕГО персонажа — игнорирую и продолжаю искать дальше.");
+                    SemiKick.LogInfo("TryFindKickTarget: попадание в СВОЕГО персонажа — игнорирую и продолжаю искать дальше.");
                     continue;
                 }
 
                 hit = candidate;
                 target = candidateTarget;
-                found = true;
-                break;
+                return true;
             }
 
+            SemiKick.LogInfo("TryFindKickTarget: после пропуска своего персонажа других целей не найдено.");
+            return false;
+        }
+
+        /// <summary>
+        /// Всё, что раньше шло в DoPhysicsRaycast после нахождения цели:
+        /// проверка на "устойчивую конструкцию", расчёт силы, тряска камеры
+        /// и применение эффекта по типу цели (через RequestGenericKick).
+        /// </summary>
+        private void ApplyKickEffects(bool found, RaycastHit hit, KickTarget target)
+        {
             if (!found)
             {
-                SemiKick.LogInfo("DoPhysicsRaycast: после пропуска своего персонажа других целей не найдено.");
+                SemiKick.LogInfo("ApplyKickEffects: цель не найдена, выхожу без эффектов.");
                 return;
             }
 
@@ -97,7 +120,7 @@ namespace SemiKick
 
             if (!validTarget)
             {
-                SemiKick.LogInfo("DoPhysicsRaycast: цель не валидна (None/неизвестный тип), выхожу без эффектов.");
+                SemiKick.LogInfo("ApplyKickEffects: цель не валидна (None/неизвестный тип), выхожу без эффектов.");
                 return;
             }
 
@@ -107,7 +130,7 @@ namespace SemiKick
                 kickLevel: SemiKickConfig.KickLevel.Value,
                 levelMultiplier: SemiKickConfig.LevelMultiplier.Value);
 
-            SemiKick.LogInfo($"DoPhysicsRaycast: рассчитанная сила force={force} (baseForce={SemiKickConfig.BaseForce.Value}, kickLevel={SemiKickConfig.KickLevel.Value}, levelMultiplier={SemiKickConfig.LevelMultiplier.Value})");
+            SemiKick.LogInfo($"ApplyKickEffects: рассчитанная сила force={force} (baseForce={SemiKickConfig.BaseForce.Value}, kickLevel={SemiKickConfig.KickLevel.Value}, levelMultiplier={SemiKickConfig.LevelMultiplier.Value})");
 
             float shakeStrength = Mathf.Clamp(
                 force * SemiKickConfig.ShakeForceMultiplier.Value,
@@ -116,24 +139,24 @@ namespace SemiKick
 
             if (GameDirector.instance != null && GameDirector.instance.CameraShake != null)
             {
-                SemiKick.LogInfo($"DoPhysicsRaycast: вызываю CameraShake.Shake(strength={shakeStrength}, time={SemiKickConfig.ShakeTime.Value})");
+                SemiKick.LogInfo($"ApplyKickEffects: вызываю CameraShake.Shake(strength={shakeStrength}, time={SemiKickConfig.ShakeTime.Value})");
                 GameDirector.instance.CameraShake.Shake(shakeStrength, SemiKickConfig.ShakeTime.Value);
             }
             else
             {
-                SemiKick.LogWarning("DoPhysicsRaycast: GameDirector.instance или CameraShake == null, тряска пропущена.");
+                SemiKick.LogWarning("ApplyKickEffects: GameDirector.instance или CameraShake == null, тряска пропущена.");
             }
 
             PlayerAvatar kicker = localPlayerHandler != null ? localPlayerHandler.Avatar : null;
             if (kicker == null)
             {
-                SemiKick.LogWarning("DoPhysicsRaycast: kicker (Avatar локального игрока) == null — knockback работать не будет для этого пинка.");
+                SemiKick.LogWarning("ApplyKickEffects: kicker (Avatar локального игрока) == null — knockback работать не будет для этого пинка.");
             }
 
             switch (target.Type)
             {
                 case KickTargetType.Player:
-                    SemiKick.LogInfo("DoPhysicsRaycast: цель Player -> KickNetworking.ApplyKickToPlayer (без self-knockback).");
+                    SemiKick.LogInfo("ApplyKickEffects: цель Player -> KickNetworking.ApplyKickToPlayer (без self-knockback).");
                     KickNetworking.ApplyKickToPlayer((PlayerAvatar)target.Component, direction * force);
                     break;
 
@@ -143,29 +166,31 @@ namespace SemiKick
                     if (enemyReceiver != null)
                     {
                         float enemyMass = enemyReceiver.GetMass();
-                        SemiKick.LogInfo($"DoPhysicsRaycast: цель Enemy '{enemy.name}', mass={enemyMass} -> ставлю в очередь через RequestGenericKick (задержка 1.5с).");
+                        SemiKick.LogInfo($"ApplyKickEffects: цель Enemy '{enemy.name}', mass={enemyMass} -> ставлю в очередь.");
 
-                        // Как и с Player — сначала отключаем контроллер и ждём
-                        // 1.5с (замах), и только потом реально шлём SendKick и
-                        // считаем нокбэк. Раньше это применялось мгновенно.
                         if (localPlayerHandler != null)
                         {
                             localPlayerHandler.RequestGenericKick(() =>
                             {
+                                // ПРОВЕРКА ВНУТРИ: не исчез ли враг за 1.5 сек?
+                                if (enemyReceiver == null || enemy == null)
+                                {
+                                    SemiKick.LogWarning("ApplyKickEffects: Враг исчез до момента удара!");
+                                    return;
+                                }
+
                                 enemyReceiver.SendKick(direction * force);
-                                KnockbackCalculator.Apply(kicker, enemyMass, force, direction);
+
+                                // Проверяем, жив ли еще наш игрок
+                                if (kicker != null)
+                                    KnockbackCalculator.Apply(kicker, enemyMass, force, direction);
                             });
                         }
                         else
                         {
-                            SemiKick.LogWarning("DoPhysicsRaycast: localPlayerHandler == null, нет корутины с задержкой — применяю Enemy-пинок сразу как фоллбэк.");
                             enemyReceiver.SendKick(direction * force);
                             KnockbackCalculator.Apply(kicker, enemyMass, force, direction);
                         }
-                    }
-                    else
-                    {
-                        SemiKick.LogWarning($"DoPhysicsRaycast: у Enemy '{enemy.name}' нет EnemyKickReceiver, пинок проигнорирован.");
                     }
                     break;
 
@@ -175,32 +200,31 @@ namespace SemiKick
                     if (valuableReceiver != null)
                     {
                         float valuableMass = physGrabObject.rb != null ? physGrabObject.rb.mass : 0f;
-                        SemiKick.LogInfo($"DoPhysicsRaycast: цель Valuable '{physGrabObject.name}', mass={valuableMass} -> ставлю в очередь через RequestGenericKick (задержка 1.5с).");
-
-                        // hit.point фиксируем сейчас (на момент раскаста), а не
-                        // через 1.5с — цель за это время могла сдвинуться/
-                        // измениться коллайдер, но точка попадания должна
-                        // соответствовать МОМЕНТУ пинка, а не моменту применения.
                         Vector3 hitPoint = hit.point;
 
                         if (localPlayerHandler != null)
                         {
                             localPlayerHandler.RequestGenericKick(() =>
                             {
+                                // ПРОВЕРКА ВНУТРИ: не исчез ли предмет за 1.5 сек?
+                                if (valuableReceiver == null || physGrabObject == null)
+                                {
+                                    SemiKick.LogWarning("ApplyKickEffects: Предмет исчез до момента удара!");
+                                    return;
+                                }
+
                                 valuableReceiver.RequestKick(direction * force, hitPoint);
-                                KnockbackCalculator.Apply(kicker, valuableMass, force, direction);
+
+                                // Проверяем, жив ли еще наш игрок и есть ли у предмета физ. тело
+                                if (kicker != null && physGrabObject.rb != null)
+                                    KnockbackCalculator.Apply(kicker, valuableMass, force, direction);
                             });
                         }
                         else
                         {
-                            SemiKick.LogWarning("DoPhysicsRaycast: localPlayerHandler == null, нет корутины с задержкой — применяю Valuable-пинок сразу как фоллбэк.");
                             valuableReceiver.RequestKick(direction * force, hitPoint);
                             KnockbackCalculator.Apply(kicker, valuableMass, force, direction);
                         }
-                    }
-                    else
-                    {
-                        SemiKick.LogWarning($"DoPhysicsRaycast: у PhysGrabObject '{physGrabObject.name}' нет ValuableKickReceiver, пинок проигнорирован.");
                     }
                     break;
             }

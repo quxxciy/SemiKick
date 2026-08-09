@@ -1,0 +1,15 @@
+{
+  "m_GameObject": {
+    "m_FileID": 0,
+    "m_PathID": -6527432938284176995
+  },
+  "m_Enabled": 1,
+  "m_Script": {
+    "m_FileID": 0,
+    "m_PathID": -5827837069407676373
+  },
+  "m_Name": "",
+  "drawGizmos": 1,
+  "gizmoTransparency": 1.0,
+  "unEquipCollider": 0
+}

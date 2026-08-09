@@ -5,6 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using UnityEngine;
+using SemiKick; // этот файл не в namespace SemiKick, а обращается к SemiKickConfig (LegStretch*)
 
 
 [Serializable]
@@ -67,6 +68,17 @@ public class KickAnimationPlayer : MonoBehaviour
     // Кэш имен костей Blender, чтобы сопоставить их с индексами массива
     private string[] blenderBoneNames;
 
+    // --- Стретч кости правой ноги ("дотягивание", по аналогии с рукой в самой игре) ---
+    // Индекс кости "Bone.004" (правая нога) в boneTransforms/blenderBoneNames.
+    // -1, если кость не нашлась при Initialize — тогда стретч просто выключен.
+    private int rightLegBoneIndex = -1;
+    // Мировая точка, до которой пытаемся "дотянуться" в текущем проигрыше
+    // (передаётся снаружи в PlayKick — обычно это hit.point рейкаста пинка).
+    // null = стретча в этом проигрыше не будет (промах/цель не найдена).
+    private Vector3? stretchTargetWorldPos;
+    // Текущее (сглаженное) значение множителя localScale по оси стретча.
+    private float currentStretchFactor = 1f;
+
     private RuntimeFrame[] runtimeFrames;
     private float totalDuration;
     private bool isReady;
@@ -101,6 +113,16 @@ public class KickAnimationPlayer : MonoBehaviour
         int actualBoneCount = boneTransforms.Length;
 
         Debug.Log($"[JSONAnimation] Итог поиска костей: найдено {actualBoneCount}/{BoneMap.Count}.");
+
+        // Запоминаем индекс кости правой ноги для стретча (см. поле
+        // rightLegBoneIndex). Ищем по blender-имени "Bone.004", т.к. это
+        // ключ BoneMap, а не unity-имя трансформа.
+        rightLegBoneIndex = System.Array.IndexOf(blenderBoneNames, "Bone.004");
+        if (rightLegBoneIndex < 0)
+        {
+            Debug.LogWarning("[JSONAnimation] Кость правой ноги (Bone.004 / 'Player Spring Impulse - Leg Right') " +
+                "не найдена в рантайм-иерархии — стретч ноги работать не будет для этого аватара.");
+        }
 
         bool fileExists = File.Exists(jsonPath);
         Debug.Log($"[JSONAnimation] Проверка файла анимации: fileExists={fileExists}, path={jsonPath}");
@@ -227,6 +249,15 @@ public class KickAnimationPlayer : MonoBehaviour
         isPlaying = false;
         hasFrameToApply = false;
 
+        // Сбрасываем стретч ноги к нормальному размеру — иначе после
+        // окончания анимации нога так и останется растянутой.
+        stretchTargetWorldPos = null;
+        currentStretchFactor = 1f;
+        if (rightLegBoneIndex >= 0 && rightLegBoneIndex < boneTransforms.Length && boneTransforms[rightLegBoneIndex] != null)
+        {
+            boneTransforms[rightLegBoneIndex].localScale = Vector3.one;
+        }
+
         Debug.Log($"[JSONAnimation] RunKick завершён: реальная длительность={Time.time - startTime:F3} (ожидалось totalDuration={totalDuration}).");
     }
 
@@ -265,6 +296,63 @@ public class KickAnimationPlayer : MonoBehaviour
                 currentT
             );
         }
+
+        // Стретч ноги считаем ПОСЛЕ применения ротаций этого кадра — иначе
+        // legBone.position ниже была бы мировой позицией с ротацией
+        // предыдущего кадра, что для замера дистанции до цели не годится.
+        if (rightLegBoneIndex >= 0 && rightLegBoneIndex < boneTransforms.Length && boneTransforms[rightLegBoneIndex] != null)
+        {
+            ApplyLegStretch(boneTransforms[rightLegBoneIndex]);
+        }
+    }
+
+    /// <summary>
+    /// "Дотягивание" ногой до цели — грубый аналог механики самой игры,
+    /// где рука растягивается, если персонаж физически не достаёт до
+    /// предмета (см. обсуждение — точный класс/поле в самой игре я не
+    /// нашёл и не проверял, поэтому здесь своя независимая реализация,
+    /// целиком в этом классе, без завязки на internal-поля игры).
+    ///
+    /// Логика: если дистанция от текущей мировой позиции кости ноги до
+    /// stretchTargetWorldPos больше "естественного дотягивания" —
+    /// растягиваем кость по localScale вдоль LegStretchAxis пропорционально
+    /// нехватке дистанции, с потолком в LegStretchMaxMultiplier.
+    /// ⚠️ Какая именно локальная ось кости "Player Spring Impulse - Leg
+    /// Right" соответствует направлению вдоль ноги — НЕ проверено (см.
+    /// SemiKickConfig.LegStretchAxis). Если растягивает не в ту сторону —
+    /// перебрать 0/1/2.
+    /// </summary>
+    private void ApplyLegStretch(Transform legBone)
+    {
+        float targetFactor = 1f;
+
+        if (stretchTargetWorldPos.HasValue)
+        {
+            float distance = Vector3.Distance(legBone.position, stretchTargetWorldPos.Value);
+            float naturalReach = SemiKickConfig.LegStretchNaturalReach.Value;
+
+            if (naturalReach > 0f && distance > naturalReach)
+            {
+                targetFactor = Mathf.Clamp(distance / naturalReach, 1f, SemiKickConfig.LegStretchMaxMultiplier.Value);
+            }
+        }
+
+        // Плавно тянемся к целевому множителю, а не телепортируем scale —
+        // резкий скачок кости на глаз выглядел бы как баг/рывок.
+        currentStretchFactor = Mathf.Lerp(
+            currentStretchFactor,
+            targetFactor,
+            Time.deltaTime * SemiKickConfig.LegStretchLerpSpeed.Value);
+
+        Vector3 scale = Vector3.one;
+        switch (SemiKickConfig.LegStretchAxis.Value)
+        {
+            case 0: scale.x = currentStretchFactor; break;
+            case 1: scale.y = currentStretchFactor; break;
+            default: scale.z = currentStretchFactor; break;
+        }
+
+        legBone.localScale = scale;
     }
 
     private Transform FindDeepChild(Transform parent, string targetName)
@@ -278,9 +366,15 @@ public class KickAnimationPlayer : MonoBehaviour
         return null;
     }
 
-    public void PlayKick()
+    /// <summary>
+    /// targetWorldPoint — точка (обычно hit.point рейкаста пинка), до которой
+    /// нога пытается "дотянуться" стретчем localScale (см. ApplyLegStretch).
+    /// null — стретча не будет (например, промах, или вызов из RPC_PlayKick
+    /// на чужом клиенте, который не знает точку попадания кикера).
+    /// </summary>
+    public void PlayKick(Vector3? targetWorldPoint = null)
     {
-        Debug.Log($"[JSONAnimation] PlayKick вызван: isReady={isReady}, isPlaying={isPlaying}, gameObject={name}.");
+        Debug.Log($"[JSONAnimation] PlayKick вызван: isReady={isReady}, isPlaying={isPlaying}, gameObject={name}, targetWorldPoint={(targetWorldPoint.HasValue ? targetWorldPoint.Value.ToString() : "NULL")}.");
 
         if (!isReady)
         {
@@ -293,6 +387,9 @@ public class KickAnimationPlayer : MonoBehaviour
             Debug.LogWarning($"[JSONAnimation] PlayKick: анимация уже проигрывается (isPlaying=true), повторный запуск пропущен.");
             return;
         }
+
+        stretchTargetWorldPos = targetWorldPoint;
+        currentStretchFactor = 1f;
 
         StartCoroutine(RunKick());
     }
