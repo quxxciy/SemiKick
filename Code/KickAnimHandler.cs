@@ -1,6 +1,6 @@
 using Photon.Pun;
 using UnityEngine;
-
+using System.Collections;
 namespace SemiKick
 {
     public class KickAnimHandler : MonoBehaviour
@@ -9,11 +9,13 @@ namespace SemiKick
         private PhotonView _photonView;
         private PlayerAvatar _avatar;
         private bool _isLocal;
-
+        private PlayerController pc;
         public PlayerAvatar Avatar => _avatar;
 
         public void Initialize(KickAnimationPlayer animPlayer, PlayerAvatar avatar)
         {
+            pc = GameObject.Find("Controller").GetComponent<PlayerController>();
+            if (pc == null ) SemiKick.LogWarning("[KickAnimHandler] PlayerController не найден на сцене!");
             _animPlayer = animPlayer;
             _avatar = avatar;
 
@@ -90,26 +92,60 @@ namespace SemiKick
         /// (см. MasterAndOwnerOnlyRPC в декомпиле PlayerAvatar.ForceImpulseRPC),
         /// поэтому если мы не мастер — просим применить мастера за нас,
         /// а не вызываем avatar.ForceImpulse напрямую.
+        ///
+        /// Теперь это просто частный случай RequestGenericKick — вся логика
+        /// "отключить контроллер -> подождать 1.5с -> включить контроллер"
+        /// живёт в DelayedKickCoroutine и общая для ЛЮБОГО типа цели
+        /// (Player/Enemy/Valuable), см. RequestGenericKick.
         /// </summary>
         public void RequestKick(Vector3 force)
         {
-            if (SemiFunc.IsMasterClientOrSingleplayer())
+            RequestGenericKick(() =>
             {
-                // Мы и есть мастер (или синглплеер) — можно сразу
-                _avatar.ForceImpulse(force);
-                return;
-            }
-
-            if (_photonView == null)
-            {
-                SemiKick.LogWarning($"[SemiKick] KickAnimHandler.RequestKick: _photonView == null, пинок не отправлен.");
-                return;
-            }
-
-            // Мы гость — просим мастера пнуть за нас
-            _photonView.RPC(nameof(RequestKickRPC), RpcTarget.MasterClient, force);
+                if (SemiFunc.IsMasterClientOrSingleplayer())
+                {
+                    // Мы мастер (или синглплеер) — применяем напрямую
+                    _avatar.ForceImpulse(force);
+                }
+                else if (_photonView != null)
+                {
+                    // Мы гость — просим мастера применить импульс
+                    _photonView.RPC(nameof(RequestKickRPC), RpcTarget.MasterClient, force);
+                }
+                else
+                {
+                    SemiKick.LogWarning($"[SemiKick] KickAnimHandler.RequestKick: _photonView == null, пинок не отправлен.");
+                }
+            });
         }
 
+        /// <summary>
+        /// Универсальная точка входа для ЛЮБОГО пинка (Player/Enemy/Valuable):
+        /// отключает PlayerController локального игрока на время замаха,
+        /// ждёт SemiKickConfig-независимую фиксированную задержку в 1.5с
+        /// (пока проигрывается анимация замаха), включает контроллер обратно
+        /// и только после этого выполняет переданное действие — фактическое
+        /// применение силы/RPC/нокбэка. Раньше через эту задержку шёл только
+        /// пинок по игроку (RequestKick), Enemy и Valuable применялись
+        /// мгновенно из SemiKickRunner — теперь все три ветки идут сюда,
+        /// вызывающий код (SemiKickRunner) просто передаёт лямбду с реальным
+        /// применением эффекта.
+        /// </summary>
+        public void RequestGenericKick(System.Action applyAction)
+        {
+            StartCoroutine(DelayedKickCoroutine(applyAction));
+        }
+
+        private IEnumerator DelayedKickCoroutine(System.Action applyAction)
+        {
+            if (pc == null) SemiKick.LogWarning("[KickAnimHandler.DelayedKickCoroutine] PlayerController не найден на сцене!");
+            if (pc != null) pc.enabled = false;
+            // Ждём 1.5 секунды (пока замахивается нога в анимации)
+            yield return new WaitForSeconds(0.5f);
+            if (pc != null) pc.enabled = true;
+
+            applyAction?.Invoke();
+        }
         [PunRPC]
         private void RequestKickRPC(Vector3 force, PhotonMessageInfo _info = default)
         {

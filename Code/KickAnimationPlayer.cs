@@ -27,31 +27,14 @@ public struct BoneRotation
     public float x, y, z, w;
 
     /// <summary>
-    /// Экспорт из Blender может не совпадать с системой координат Unity
-    /// (Blender: Z-up, правосторонняя; Unity: Y-up, левосторонняя).
-    /// Симптом "поза верная, но толчок идёт в обратную сторону" обычно
-    /// значит, что инвертирован один конкретный компонент кватерниона,
-    /// а не вся система целиком — поэтому даём режим 0-7, перебирающий
-    /// все комбинации знаков x/y/z (w не трогаем, т.к. смена только его
-    /// знака не меняет саму ротацию). Ищется эмпирически через
-    /// SemiKickConfig.AnimationConversionMode, без пересборки мода.
+    /// Конвертация Blender -> Unity (Z-up правосторонняя -> Y-up левосторонняя)
+    /// теперь делается один раз на этапе экспорта, в Python-скрипте
+    /// (export_animation_for_unity.py, функция blender_quat_to_unity).
+    /// Здесь просто собираем Quaternion из уже готовых значений.
     /// </summary>
-    public Quaternion ToQuaternion(int conversionMode)
+    public Quaternion ToQuaternion()
     {
-        float sx = x, sy = y, sz = z;
-        switch (conversionMode)
-        {
-            case 0: break;                              // как есть, без изменений
-            case 1: sx = -sx; break;
-            case 2: sy = -sy; break;
-            case 3: sz = -sz; break;
-            case 4: sx = -sx; sy = -sy; break;
-            case 5: sx = -sx; sz = -sz; break;
-            case 6: sy = -sy; sz = -sz; break;
-            case 7: sx = -sx; sy = -sy; sz = -sz; break;
-            default: break;
-        }
-        return new Quaternion(sx, sy, sz, w);
+        return new Quaternion(x, y, z, w);
     }
 }
 
@@ -71,12 +54,6 @@ public class KickAnimationPlayer : MonoBehaviour
     // Карта соответствия: имя кости в Blender -> ИМЯ ТРАНСФОРМА В UNITY (без путей!)
     private static readonly Dictionary<string, string> BoneMap = new Dictionary<string, string>
     {
-        //{ "Bone", "ANIM BODY BOT SCALE" }, // Таз / тело
-        //{ "Bone.003", "ANIM HEAD BOT" },   // Голова
-        //{ "Bone.004", "ANIM LEG R BOT" },  // Правая нога
-        //{ "Bone.005", "ANIM LEG L BOT" },  // Левая нога
-        //{ "Bone.006", "ANIM ARM L" },      // Левая рука
-        //{ "Bone.007", "ANIM ARM R" },      // Правая рука
         { "Bone", "ANIM BODY BOT" }, // Таз / тело
         { "Bone.003", "ANIM HEAD BOT" },   // Голова
         { "Bone.004", "Player Spring Impulse - Leg Right" },  // Правая нога
@@ -153,9 +130,6 @@ public class KickAnimationPlayer : MonoBehaviour
 
             Debug.Log($"[JSONAnimation] Десериализация ок: duration={totalDuration}, framesCount={rawData.frames.Count}. Пересобираю в RuntimeFrame...");
 
-            int conversionMode = SemiKick.SemiKickConfig.AnimationConversionMode.Value;
-            Debug.Log($"[JSONAnimation] Применяю AnimationConversionMode={conversionMode} ко всем кватернионам (0=без изменений, 1..7=разные комбинации инверсии осей X/Y/Z).");
-
             int missingBoneSamples = 0;
 
             for (int f = 0; f < rawData.frames.Count; f++)
@@ -171,7 +145,7 @@ public class KickAnimationPlayer : MonoBehaviour
                     string bName = blenderBoneNames[b];
                     if (sourceFrame.bones != null && sourceFrame.bones.TryGetValue(bName, out BoneRotation rot))
                     {
-                        runtimeFrames[f].rotations[b] = rot.ToQuaternion(conversionMode);
+                        runtimeFrames[f].rotations[b] = rot.ToQuaternion();
                     }
                     else
                     {

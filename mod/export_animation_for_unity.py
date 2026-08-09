@@ -17,6 +17,20 @@ import os
 ARMATURE_NAME = "Armature"     # имя объекта арматуры в Outliner
 OUTPUT_FILENAME = "kick_animation.json"
 
+def blender_quat_to_unity(q):
+    """
+    Конвертирует кватернион поворота из системы координат Blender
+    (Z-up, правосторонняя) в систему координат Unity (Y-up, левосторонняя).
+
+    Выведено через явную замену базиса (swap Y<->Z) и подстановку матриц
+    поворота вокруг X/Y/Z по отдельности, а не подобрано перебором.
+    Формула не зависит от значений — работает для любого поворота.
+
+    Возвращает кортеж (x, y, z, w) уже в системе координат Unity.
+    """
+    return (-q.x, -q.z, -q.y, q.w)
+
+
 def export_pose_animation():
     obj = bpy.data.objects.get(ARMATURE_NAME)
     if obj is None or obj.type != 'ARMATURE':
@@ -39,15 +53,20 @@ def export_pose_animation():
 
         bones_data = {}
         for pbone in obj.pose.bones:
-            # локальный поворот кости относительно родителя, в виде кватерниона
+            # локальный поворот кости относительно родителя (рест-позы), в виде кватерниона
             q = pbone.rotation_quaternion if pbone.rotation_mode == 'QUATERNION' \
                 else pbone.matrix_basis.to_quaternion()
 
+            # Конвертация системы координат Blender (Z-up, правосторонняя)
+            # в Unity (Y-up, левосторонняя): swap Y/Z + смена знака.
+            # Выведено через матрицы поворота (X/Y/Z), не подобрано эмпирически.
+            qx, qy, qz, qw = blender_quat_to_unity(q)
+
             bones_data[pbone.name] = {
-                "w": round(q.w, 6),
-                "x": round(q.x, 6),
-                "y": round(q.y, 6),
-                "z": round(q.z, 6),
+                "w": round(qw, 6),
+                "x": round(qx, 6),
+                "y": round(qy, 6),
+                "z": round(qz, 6),
             }
 
         frames_data.append({
