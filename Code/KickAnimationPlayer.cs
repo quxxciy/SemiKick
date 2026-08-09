@@ -25,7 +25,34 @@ public class FrameData
 public struct BoneRotation
 {
     public float x, y, z, w;
-    public Quaternion ToQuaternion() => new Quaternion(x, y, z, w);
+
+    /// <summary>
+    /// Экспорт из Blender может не совпадать с системой координат Unity
+    /// (Blender: Z-up, правосторонняя; Unity: Y-up, левосторонняя).
+    /// Симптом "поза верная, но толчок идёт в обратную сторону" обычно
+    /// значит, что инвертирован один конкретный компонент кватерниона,
+    /// а не вся система целиком — поэтому даём режим 0-7, перебирающий
+    /// все комбинации знаков x/y/z (w не трогаем, т.к. смена только его
+    /// знака не меняет саму ротацию). Ищется эмпирически через
+    /// SemiKickConfig.AnimationConversionMode, без пересборки мода.
+    /// </summary>
+    public Quaternion ToQuaternion(int conversionMode)
+    {
+        float sx = x, sy = y, sz = z;
+        switch (conversionMode)
+        {
+            case 0: break;                              // как есть, без изменений
+            case 1: sx = -sx; break;
+            case 2: sy = -sy; break;
+            case 3: sz = -sz; break;
+            case 4: sx = -sx; sy = -sy; break;
+            case 5: sx = -sx; sz = -sz; break;
+            case 6: sy = -sy; sz = -sz; break;
+            case 7: sx = -sx; sy = -sy; sz = -sz; break;
+            default: break;
+        }
+        return new Quaternion(sx, sy, sz, w);
+    }
 }
 
 // Оптимизированная структура для рантайма (без строк)
@@ -34,8 +61,6 @@ public struct RuntimeFrame
     public float time;
     public Quaternion[] rotations; // Индекс совпадает с индексом в кэше костей
 }
-
-
 /// <summary>
 /// Проигрывает анимацию, экспортированную из Blender в JSON, напрямую крутя
 /// Transform'ы игровой рантайм-иерархии.
@@ -128,6 +153,9 @@ public class KickAnimationPlayer : MonoBehaviour
 
             Debug.Log($"[JSONAnimation] Десериализация ок: duration={totalDuration}, framesCount={rawData.frames.Count}. Пересобираю в RuntimeFrame...");
 
+            int conversionMode = SemiKick.SemiKickConfig.AnimationConversionMode.Value;
+            Debug.Log($"[JSONAnimation] Применяю AnimationConversionMode={conversionMode} ко всем кватернионам (0=без изменений, 1..7=разные комбинации инверсии осей X/Y/Z).");
+
             int missingBoneSamples = 0;
 
             for (int f = 0; f < rawData.frames.Count; f++)
@@ -143,7 +171,7 @@ public class KickAnimationPlayer : MonoBehaviour
                     string bName = blenderBoneNames[b];
                     if (sourceFrame.bones != null && sourceFrame.bones.TryGetValue(bName, out BoneRotation rot))
                     {
-                        runtimeFrames[f].rotations[b] = rot.ToQuaternion();
+                        runtimeFrames[f].rotations[b] = rot.ToQuaternion(conversionMode);
                     }
                     else
                     {

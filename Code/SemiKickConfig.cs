@@ -30,6 +30,9 @@ namespace SemiKick
         public static ConfigEntry<float> ShakeMax;
         public static ConfigEntry<float> ShakeTime;
 
+        // --- Анимация (JSON из Blender) ---
+        public static ConfigEntry<int> AnimationConversionMode;
+
         // --- Knockback / отдача ---
         public static ConfigEntry<float> KnockbackSoftThreshold;
         public static ConfigEntry<float> KnockbackHardThreshold;
@@ -55,7 +58,7 @@ namespace SemiKick
                 "Минимальный уровень логов (Debug, Info, Warning, Error)"
             );
 
-            BaseForce = config.Bind("Kick", "BaseForce", 10f, "Базовая сила пинка (до апгрейдов).");
+            BaseForce = config.Bind("Kick", "BaseForce", 0.70f, "Базовая сила пинка (до апгрейдов).");
             KickLevel = config.Bind("Kick", "KickLevel", 0, "Текущий уровень апгрейда силы пинка.");
             LevelMultiplier = config.Bind("Kick", "LevelMultiplier", 0.5f, "Множитель силы за уровень.");
 
@@ -63,6 +66,13 @@ namespace SemiKick
             ShakeMin = config.Bind("Camera", "ShakeMin", 0.5f, "Минимальная тряска камеры при валидном пинке.");
             ShakeMax = config.Bind("Camera", "ShakeMax", 4f, "Максимальная тряска камеры (clamp).");
             ShakeTime = config.Bind("Camera", "ShakeTime", 0.05f, "Задержка до начала затухания тряски (CameraShake.time).");
+
+            AnimationConversionMode = config.Bind("Animation", "ConversionMode", 1,
+                "Конвертация осей кватерниона Blender->Unity, если анимация играет не в ту сторону " +
+                "(например, толчок идёт назад вместо вперёд). Перебрать значения 0-7 и найти рабочее: " +
+                "0=без изменений, 1=инверсия X, 2=инверсия Y, 3=инверсия Z, " +
+                "4=инверсия X+Y, 5=инверсия X+Z, 6=инверсия Y+Z, 7=инверсия X+Y+Z. " +
+                "Требует перезахода на уровень/переспавна аватара, т.к. читается один раз при Initialize.");
 
             KnockbackSoftThreshold = config.Bind("Knockback", "SoftThreshold", 1.5f,
                 "targetMass/kickForce выше этого значения -> лёгкая отдача без тамбла.");
