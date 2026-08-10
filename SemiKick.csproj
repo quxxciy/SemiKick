@@ -92,18 +92,23 @@
     <Compile Include="Code\PlayerAvatarVisualsPatch.cs" />
     <Compile Include="Code\InternalAccessors.cs" />
     <Compile Include="Code\KickAnimationPlayer.cs" />
-    <Compile Include="Code\KickForceCalculator.cs" />
     <Compile Include="Code\KickNetworking.cs" />
     <Compile Include="Code\KickTargetClassifier.cs" />
     <Compile Include="Code\SemiKick.cs" />
     <Compile Include="Code\SemiKick.ItemBundle.cs" />
     <Compile Include="Code\SemiKick.Logging.cs" />
     <Compile Include="Code\SemiKick.Upgrades.cs" />
-    <Compile Include="Code\SemiKickConfig.cs" />
     <Compile Include="Code\SemiKickRunner.cs" />
+    <Compile Include="Code\SemiKickSettings.cs" />
     <Compile Include="Code\ValuableKickReceiver.cs" />
     <Compile Include="Code\ValuableKickReceiverPatch.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\SemiKick.repobundle" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\kick_animation.json" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

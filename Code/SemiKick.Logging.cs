@@ -11,9 +11,9 @@ namespace SemiKick
     {
         public static void Log(LogLevel level, object data)
         {
-            if (!SemiKickConfig.EnableLogging.Value) return;
+            if (!SemiKickSettings.EnableLogging) return;
 
-            if ((SemiKickConfig.MinLogLevel.Value & level) != 0 || level >= SemiKickConfig.MinLogLevel.Value)
+            if ((SemiKickSettings.MinLogLevel & level) != 0 || level >= SemiKickSettings.MinLogLevel)
             {
                 LoggerInstance?.Log(level, data);
             }

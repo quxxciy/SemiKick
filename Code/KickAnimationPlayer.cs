@@ -4,8 +4,10 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using UnityEngine;
-using SemiKick; // этот файл не в namespace SemiKick, а обращается к SemiKickConfig (LegStretch*)
+using SemiKick; // этот файл не в namespace SemiKick, а обращается к SemiKickSettings (LegStretch*)
 
 
 [Serializable]
@@ -67,6 +69,10 @@ public class KickAnimationPlayer : MonoBehaviour
     private Transform[] boneTransforms;
     // Кэш имен костей Blender, чтобы сопоставить их с индексами массива
     private string[] blenderBoneNames;
+    // Исходные (до начала анимации) локальные повороты костей — чтобы после
+    // окончания проигрыша вернуть кости в стартовую позу (иначе они остаются
+    // в последнем кадре анимации, например голова наклонённой).
+    private Quaternion[] initialLocalRotations;
 
     // --- Стретч кости правой ноги ("дотягивание", по аналогии с рукой в самой игре) ---
     // Индекс кости "Bone.004" (правая нога) в boneTransforms/blenderBoneNames.
@@ -84,10 +90,93 @@ public class KickAnimationPlayer : MonoBehaviour
     private bool isReady;
     private bool isPlaying;
 
+    // Длительность плавного возврата костей в стартовую позу после
+    // окончания анимации (вместо мгновенного присвоения — иначе виден
+    // рывок, особенно на голове).
+    [SerializeField] private float returnToRestDuration = 0.15f;
+    // Корутина плавного возврата — храним ссылку, чтобы не запустить
+    // параллельно две (например, если PlayKick вызвали почти сразу после
+    // предыдущего завершения).
+    private Coroutine returnToRestCoroutine;
+
+    /// <summary>
+    /// Извлекает текст (JSON) из embedded resource сборки по "хвосту" имени
+    /// (аналогично LoadItemContentFromEmbeddedBundle в SemiKick.ItemBundle.cs).
+    /// Сравнение регистронезависимое, чтобы не ловить те же грабли с
+    /// регистром namespace/папок, что были с бандлом.
+    /// </summary>
+    private static string LoadTextFromEmbeddedResource(string resourceFileName)
+    {
+        var asm = Assembly.GetExecutingAssembly();
+
+        string resourceName = asm.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith(resourceFileName, StringComparison.OrdinalIgnoreCase));
+
+        if (resourceName == null)
+        {
+            Debug.LogError($"[JSONAnimation] Embedded resource '{resourceFileName}' не найден. " +
+                $"Доступные ресурсы: {string.Join(", ", asm.GetManifestResourceNames())}");
+            return null;
+        }
+
+        using (Stream stream = asm.GetManifestResourceStream(resourceName))
+        {
+            if (stream == null)
+            {
+                Debug.LogError($"[JSONAnimation] GetManifestResourceStream вернул null для '{resourceName}'.");
+                return null;
+            }
+
+            using (StreamReader reader = new StreamReader(stream))
+            {
+                return reader.ReadToEnd();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Инициализация с чтением JSON-файла с диска (основной путь, если
+    /// анимация лежит рядом с плагином, а не зашита в сборку).
+    /// </summary>
     public void Initialize(string jsonPath, Transform rigRoot)
     {
         Debug.Log($"[JSONAnimation] Initialize вызван: jsonPath={jsonPath}, rigRoot={(rigRoot != null ? rigRoot.name : "NULL")}");
 
+        bool fileExists = File.Exists(jsonPath);
+        Debug.Log($"[JSONAnimation] Проверка файла анимации: fileExists={fileExists}, path={jsonPath}");
+
+        string text = fileExists ? File.ReadAllText(jsonPath) : null;
+
+        InitializeInternal(text, rigRoot, hasSource: fileExists,
+            missingSourceReason: "Файл kick_animation.json не найден по указанному пути. ");
+    }
+
+    /// <summary>
+    /// Инициализация из уже готовой JSON-строки — например, извлечённой из
+    /// embedded resource через LoadTextFromEmbeddedResource. Используй это,
+    /// если анимация зашита в сборку так же, как ItemContent-бандл.
+    /// </summary>
+    public void InitializeFromJsonText(string jsonText, Transform rigRoot)
+    {
+        Debug.Log($"[JSONAnimation] Initialize (embedded) вызван: jsonText.Length={(jsonText != null ? jsonText.Length : -1)}, rigRoot={(rigRoot != null ? rigRoot.name : "NULL")}");
+
+        InitializeInternal(jsonText, rigRoot, hasSource: !string.IsNullOrEmpty(jsonText),
+            missingSourceReason: "JSON-текст из embedded resource пуст или не был найден (см. лог LoadTextFromEmbeddedResource выше). ");
+    }
+
+    /// <summary>
+    /// Инициализация "в один шаг" из имени embedded resource — сама достаёт
+    /// текст и передаёт дальше. Удобно, если не нужен промежуточный доступ
+    /// к сырому JSON.
+    /// </summary>
+    public void InitializeFromEmbeddedResource(string resourceFileName, Transform rigRoot)
+    {
+        string jsonText = LoadTextFromEmbeddedResource(resourceFileName);
+        InitializeFromJsonText(jsonText, rigRoot);
+    }
+
+    private void InitializeInternal(string text, Transform rigRoot, bool hasSource, string missingSourceReason)
+    {
         // 1. Ищем только существующие кости и сохраняем их во временные списки
         var foundTransforms = new List<Transform>();
         var foundBlenderNames = new List<string>();
@@ -114,6 +203,15 @@ public class KickAnimationPlayer : MonoBehaviour
 
         Debug.Log($"[JSONAnimation] Итог поиска костей: найдено {actualBoneCount}/{BoneMap.Count}.");
 
+        // Запоминаем стартовую позу (bind pose) каждой найденной кости — до
+        // того, как к ним применится анимация. Используется для восстановления
+        // после окончания проигрыша (см. RunKick).
+        initialLocalRotations = new Quaternion[actualBoneCount];
+        for (int b = 0; b < actualBoneCount; b++)
+        {
+            initialLocalRotations[b] = boneTransforms[b].localRotation;
+        }
+
         // Запоминаем индекс кости правой ноги для стретча (см. поле
         // rightLegBoneIndex). Ищем по blender-имени "Bone.004", т.к. это
         // ключ BoneMap, а не unity-имя трансформа.
@@ -124,14 +222,10 @@ public class KickAnimationPlayer : MonoBehaviour
                 "не найдена в рантайм-иерархии — стретч ноги работать не будет для этого аватара.");
         }
 
-        bool fileExists = File.Exists(jsonPath);
-        Debug.Log($"[JSONAnimation] Проверка файла анимации: fileExists={fileExists}, path={jsonPath}");
-
         // 2. Загружаем и пересобираем данные
-        if (fileExists && actualBoneCount > 0)
+        if (hasSource && actualBoneCount > 0)
         {
-            string text = File.ReadAllText(jsonPath);
-            Debug.Log($"[JSONAnimation] JSON прочитан, длина текста={text.Length} символов. Десериализую...");
+            Debug.Log($"[JSONAnimation] JSON получен, длина текста={text.Length} символов. Десериализую...");
 
             var rawData = JsonConvert.DeserializeObject<AnimationData>(text);
 
@@ -189,8 +283,8 @@ public class KickAnimationPlayer : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"[JSONAnimation] Initialize НЕ завершился (isReady останется false): fileExists={fileExists}, actualBoneCount={actualBoneCount}. " +
-                (!fileExists ? "Файл kick_animation.json не найден по указанному пути. " : "") +
+            Debug.LogWarning($"[JSONAnimation] Initialize НЕ завершился (isReady останется false): hasSource={hasSource}, actualBoneCount={actualBoneCount}. " +
+                (!hasSource ? missingSourceReason : "") +
                 (actualBoneCount == 0 ? "Ни одна кость из BoneMap не найдена в rigRoot — проверьте иерархию/имена." : ""));
         }
     }
@@ -214,6 +308,14 @@ public class KickAnimationPlayer : MonoBehaviour
 
     private IEnumerator RunKick()
     {
+        // Если предыдущий проигрыш ещё доворачивает кости в стартовую позу —
+        // останавливаем, иначе он будет конфликтовать с новой анимацией.
+        if (returnToRestCoroutine != null)
+        {
+            StopCoroutine(returnToRestCoroutine);
+            returnToRestCoroutine = null;
+        }
+
         isPlaying = true;
         float startTime = Time.time;
         int currentFrameIndex = 0;
@@ -258,7 +360,79 @@ public class KickAnimationPlayer : MonoBehaviour
             boneTransforms[rightLegBoneIndex].localScale = Vector3.one;
         }
 
-        Debug.Log($"[JSONAnimation] RunKick завершён: реальная длительность={Time.time - startTime:F3} (ожидалось totalDuration={totalDuration}).");
+        // Плавно возвращаем все кости в стартовую позу — мгновенное
+        // присвоение давало заметный рывок (особенно на голове).
+        if (returnToRestCoroutine != null)
+        {
+            StopCoroutine(returnToRestCoroutine);
+        }
+        returnToRestCoroutine = StartCoroutine(ReturnToRestPose());
+
+        Debug.Log($"[JSONAnimation] RunKick завершён: реальная длительность={Time.time - startTime:F3} (ожидалось totalDuration={totalDuration}), запущен плавный возврат костей в стартовую позу за {returnToRestDuration:F3}с.");
+    }
+
+    /// <summary>
+    /// Плавно доворачивает кости из их текущего положения (последний кадр
+    /// анимации) в стартовую позу за returnToRestDuration секунд.
+    /// Запускается из RunKick после того, как основная анимация закончилась
+    /// (hasFrameToApply уже false, так что LateUpdate не конфликтует).
+    /// </summary>
+    private IEnumerator ReturnToRestPose()
+    {
+        if (initialLocalRotations == null || boneTransforms == null)
+            yield break;
+
+        int count = boneTransforms.Length;
+        var fromRotations = new Quaternion[count];
+        for (int i = 0; i < count; i++)
+        {
+            if (boneTransforms[i] != null)
+            {
+                fromRotations[i] = boneTransforms[i].localRotation;
+            }
+        }
+
+        if (returnToRestDuration <= 0f)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (boneTransforms[i] != null && i < initialLocalRotations.Length)
+                {
+                    boneTransforms[i].localRotation = initialLocalRotations[i];
+                }
+            }
+            returnToRestCoroutine = null;
+            yield break;
+        }
+
+        float elapsed = 0f;
+        while (elapsed < returnToRestDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / returnToRestDuration);
+
+            for (int i = 0; i < count; i++)
+            {
+                if (boneTransforms[i] != null && i < initialLocalRotations.Length)
+                {
+                    boneTransforms[i].localRotation = Quaternion.Slerp(fromRotations[i], initialLocalRotations[i], t);
+                }
+            }
+
+            yield return null;
+        }
+
+        // Финальный "доводок" точно в целевое значение — чтобы не зависеть
+        // от погрешности накопленного elapsed/Time.deltaTime.
+        for (int i = 0; i < count; i++)
+        {
+            if (boneTransforms[i] != null && i < initialLocalRotations.Length)
+            {
+                boneTransforms[i].localRotation = initialLocalRotations[i];
+            }
+        }
+
+        returnToRestCoroutine = null;
     }
 
     private bool _loggedFirstApply;
@@ -319,7 +493,7 @@ public class KickAnimationPlayer : MonoBehaviour
     /// нехватке дистанции, с потолком в LegStretchMaxMultiplier.
     /// ⚠️ Какая именно локальная ось кости "Player Spring Impulse - Leg
     /// Right" соответствует направлению вдоль ноги — НЕ проверено (см.
-    /// SemiKickConfig.LegStretchAxis). Если растягивает не в ту сторону —
+    /// SemiKickSettings.LegStretchAxis). Если растягивает не в ту сторону —
     /// перебрать 0/1/2.
     /// </summary>
     private void ApplyLegStretch(Transform legBone)
@@ -329,11 +503,11 @@ public class KickAnimationPlayer : MonoBehaviour
         if (stretchTargetWorldPos.HasValue)
         {
             float distance = Vector3.Distance(legBone.position, stretchTargetWorldPos.Value);
-            float naturalReach = SemiKickConfig.LegStretchNaturalReach.Value;
+            float naturalReach = SemiKickSettings.LegStretchNaturalReach;
 
             if (naturalReach > 0f && distance > naturalReach)
             {
-                targetFactor = Mathf.Clamp(distance / naturalReach, 1f, SemiKickConfig.LegStretchMaxMultiplier.Value);
+                targetFactor = Mathf.Clamp(distance / naturalReach, 1f, SemiKickSettings.LegStretchMaxMultiplier);
             }
         }
 
@@ -342,10 +516,10 @@ public class KickAnimationPlayer : MonoBehaviour
         currentStretchFactor = Mathf.Lerp(
             currentStretchFactor,
             targetFactor,
-            Time.deltaTime * SemiKickConfig.LegStretchLerpSpeed.Value);
+            Time.deltaTime * SemiKickSettings.LegStretchLerpSpeed);
 
         Vector3 scale = Vector3.one;
-        switch (SemiKickConfig.LegStretchAxis.Value)
+        switch (SemiKickSettings.LegStretchAxis)
         {
             case 0: scale.x = currentStretchFactor; break;
             case 1: scale.y = currentStretchFactor; break;

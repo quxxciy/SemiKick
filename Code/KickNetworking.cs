@@ -6,7 +6,10 @@ namespace SemiKick
     /// Обёртка над сетевым применением силы пинка.
     /// Игрок: используем готовый PlayerAvatar.ForceImpulse — он сам внутри
     /// дёргает photonView.RPC("ForceImpulseRPC", RpcTarget.All, _force),
-    /// свой RPC не нужен.
+    /// свой RPC не нужен. С уровня SemiKickSettings.PlayerTumbleGuaranteeLevel
+    /// дополнительно гарантированно тамблим ЦЕЛЬ пинка (не путать с
+    /// self-recoil тамблом кикера из KnockbackCalculator) — см. forceTumble
+    /// в ApplyKickToPlayer, ведём тем же master/owner-путём, что и force.
     /// Enemy: не через этот класс — см. EnemyKickReceiver.SendKick (свой RPC,
     /// нужен из-за стан-логики, которая должна быть идентична у всех клиентов).
     /// Valuable/PhysGrabObject: master-авторитарная модель — RPC не нужен.
@@ -17,18 +20,31 @@ namespace SemiKick
     /// </summary>
     internal static class KickNetworking
     {
-        public static void ApplyKickToPlayer(PlayerAvatar player, Vector3 force)
+        /// <param name="forceTumble">
+        /// Гарантированный тамбл ЦЕЛИ (не путать с self-recoil тамблом кикера
+        /// из KnockbackCalculator — это другая, принудительная механика,
+        /// см. SemiKickSettings.PlayerTumbleGuaranteeLevel). Прокидывается
+        /// дальше в KickAnimHandler.RequestKick — там же и решается, как
+        /// это безопасно применить с учётом master/owner-авторизации.
+        /// </param>
+        public static void ApplyKickToPlayer(PlayerAvatar player, Vector3 force, bool forceTumble = false)
         {
             var handler = player.gameObject.GetComponent<KickAnimHandler>();
             if (handler != null)
             {
-                handler.RequestKick(force);
+                handler.RequestKick(force, forceTumble);
             }
             else
             {
                 // fallback на случай, если по какой-то причине хендлера нет
                 SemiKick.LogWarning($"[SemiKick] ApplyKickToPlayer: у {player.name} нет KickAnimHandler, пинок может не сработать у гостей.");
                 player.ForceImpulse(force);
+                // ⚠️ forceTumble здесь намеренно не обрабатывается — без
+                // handler'а нет доступа к безопасному master/owner-пути
+                // (см. KickAnimHandler.RequestKick), а бросать TumbleRequest
+                // напрямую без авторизации — то же, чего мы избегаем везде
+                // с ForceImpulse. Тамбл цели в этом fallback-случае просто
+                // не сработает — это редкий путь (см. warning выше).
             }
         }
 

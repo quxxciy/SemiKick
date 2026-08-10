@@ -35,14 +35,12 @@ namespace SemiKick
         {
             LoggerInstance = Logger;
 
-            SemiKickConfig.Init(Config);
-
             kickKeybind = Keybinds.Bind("General", "Kick", "<Keyboard>/f");
 
             LogInfo("SemiKick загружен, бинд зарегистрирован.");
 
             // --- Загружаем embedded .repobundle и достаём Item (см. SemiKick.ItemBundle.cs) ---
-            var itemContent = LoadItemContentFromFile("semikick.repobundle", "REPOLib_Item Upgrade Kick");
+            var itemContent = LoadItemContentFromEmbeddedBundle("SemiKick.Resources.SemiKick.repobundle", "REPOLib_Item Upgrade Kick");
 
             Item myItem = null;
 

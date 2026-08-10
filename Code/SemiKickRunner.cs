@@ -50,24 +50,17 @@ namespace SemiKick
         }
 
         /// <summary>
-        /// Реальный уровень апгрейда локального игрока (из
+        /// Реальный уровень апгрейда локального игрока — из
         /// KickAnimHandler.KickLevel, который наполняется REPOLib-колбэками
-        /// в SemiKick.cs) + debug-добавка из SemiKickConfig.KickLevel.
-        /// Так конфиг остаётся рабочим инструментом для теста баланса без
-        /// похода в магазин, но не подменяет собой реальную прокачку.
+        /// в SemiKick.Upgrades.cs. Раньше тут ещё добавлялась debug-добавка
+        /// из SemiKickConfig (для теста без похода в магазин) — конфиг убран,
+        /// баланс отдебажен, метод оставлен как явная именованная точка на
+        /// случай, если понадобится снова что-то домешать сюда (проще
+        /// найти одно место, чем грепать localPlayerHandler.KickLevel по коду).
         /// </summary>
         private int GetEffectiveKickLevel()
         {
-            int realLevel = localPlayerHandler != null ? localPlayerHandler.KickLevel : 0;
-            int debugAddon = SemiKickConfig.KickLevel.Value;
-            int total = realLevel + debugAddon;
-
-            if (debugAddon != 0)
-            {
-                SemiKick.LogInfo($"GetEffectiveKickLevel: realLevel={realLevel}, debugAddon={debugAddon} (из конфига), итог={total}.");
-            }
-
-            return total;
+            return localPlayerHandler != null ? localPlayerHandler.KickLevel : 0;
         }
 
         /// <summary>
@@ -130,7 +123,7 @@ namespace SemiKick
                 return;
             }
 
-            if (!InternalAccessors.OhGodDeveloper_WHATDIDIEVERDOTOYOU(localPlayerHandler?.Avatar))
+            if (!InternalAccessors.CanDoStuff(localPlayerHandler?.Avatar))
             {
                 SemiKick.LogInfo("Не устойчивая конструкция - пропуск.");
                 return;
@@ -148,22 +141,19 @@ namespace SemiKick
             Vector3 direction = Camera.main.transform.forward;
 
             int effectiveLevel = GetEffectiveKickLevel();
-            float force = KickForceCalculator.GetBaseKickForce(
-                baseForce: SemiKickConfig.BaseForce.Value,
-                kickLevel: effectiveLevel,
-                levelMultiplier: SemiKickConfig.LevelMultiplier.Value);
+            float force = SemiKickSettings.GetKickForce(effectiveLevel);
 
-            SemiKick.LogInfo($"ApplyKickEffects: рассчитанная сила force={force} (baseForce={SemiKickConfig.BaseForce.Value}, effectiveLevel={effectiveLevel}, levelMultiplier={SemiKickConfig.LevelMultiplier.Value})");
+            SemiKick.LogInfo($"ApplyKickEffects: рассчитанная сила force={force} (baseForce={SemiKickSettings.BaseForce}, effectiveLevel={effectiveLevel}, levelMultiplier={SemiKickSettings.LevelMultiplier})");
 
             float shakeStrength = Mathf.Clamp(
-                force * SemiKickConfig.ShakeForceMultiplier.Value,
-                SemiKickConfig.ShakeMin.Value,
-                SemiKickConfig.ShakeMax.Value);
+                force * SemiKickSettings.ShakeForceMultiplier,
+                SemiKickSettings.ShakeMin,
+                SemiKickSettings.ShakeMax);
 
             if (GameDirector.instance != null && GameDirector.instance.CameraShake != null)
             {
-                SemiKick.LogInfo($"ApplyKickEffects: вызываю CameraShake.Shake(strength={shakeStrength}, time={SemiKickConfig.ShakeTime.Value})");
-                GameDirector.instance.CameraShake.Shake(shakeStrength, SemiKickConfig.ShakeTime.Value);
+                SemiKick.LogInfo($"ApplyKickEffects: вызываю CameraShake.Shake(strength={shakeStrength}, time={SemiKickSettings.ShakeTime})");
+                GameDirector.instance.CameraShake.Shake(shakeStrength, SemiKickSettings.ShakeTime);
             }
             else
             {
@@ -179,8 +169,9 @@ namespace SemiKick
             switch (target.Type)
             {
                 case KickTargetType.Player:
-                    SemiKick.LogInfo("ApplyKickEffects: цель Player -> KickNetworking.ApplyKickToPlayer (без self-knockback).");
-                    KickNetworking.ApplyKickToPlayer((PlayerAvatar)target.Component, direction * force);
+                    bool forceTumble = effectiveLevel >= SemiKickSettings.PlayerTumbleGuaranteeLevel;
+                    SemiKick.LogInfo($"ApplyKickEffects: цель Player -> KickNetworking.ApplyKickToPlayer (без self-knockback), forceTumble={forceTumble} (effectiveLevel={effectiveLevel} >= {SemiKickSettings.PlayerTumbleGuaranteeLevel}).");
+                    KickNetworking.ApplyKickToPlayer((PlayerAvatar)target.Component, direction * force, forceTumble);
                     break;
 
                 case KickTargetType.Enemy:

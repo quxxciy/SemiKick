@@ -34,8 +34,8 @@ namespace SemiKick
             }
 
             float resistanceRatio = targetMass / kickForce;
-            float soft = SemiKickConfig.KnockbackSoftThreshold.Value;
-            float hard = SemiKickConfig.KnockbackHardThreshold.Value;
+            float soft = SemiKickSettings.KnockbackSoftThreshold;
+            float hard = SemiKickSettings.KnockbackHardThreshold;
 
             SemiKick.LogInfo($"[SemiKick] KnockbackCalculator: resistanceRatio={resistanceRatio} (targetMass={targetMass} / kickForce={kickForce}), SoftThreshold={soft}, HardThreshold={hard}");
 
@@ -51,7 +51,7 @@ namespace SemiKick
             // отдача остаётся мизерной, даже если resistanceRatio огромный.
             // Смысл: чем тяжелее то, что вы попытались пнуть, тем сильнее
             // вас откидывает назад, независимо от текущей силы пинка.
-            float recoilForce = targetMass * SemiKickConfig.RecoilForceMultiplier.Value;
+            float recoilForce = targetMass * SemiKickSettings.RecoilForceMultiplier;
 
             if (resistanceRatio > hard)
             {
@@ -60,19 +60,19 @@ namespace SemiKick
                 // конкретная цель (масса 4 не должна ощущаться прям сильно
                 // слабее массы 9 — тамбл это уже "ты облажался", и это
                 // должно вставлять одинаково эпично).
-                float computedForce = targetMass * SemiKickConfig.RecoilForceMultiplier.Value;
-                float recoilForceHard = Mathf.Max(computedForce, SemiKickConfig.KnockbackHardMinForce.Value);
+                float computedForce = targetMass * SemiKickSettings.RecoilForceMultiplier;
+                float recoilForceHard = Mathf.Max(computedForce, SemiKickSettings.KnockbackHardMinForce);
 
-                SemiKick.LogInfo($"[SemiKick] KnockbackCalculator: resistanceRatio > HardThreshold -> ТАМБЛ + урон. computedForce={computedForce}, floor={SemiKickConfig.KnockbackHardMinForce.Value}, итог recoilForce={recoilForceHard}, direction={recoilDirection}");
+                SemiKick.LogInfo($"[SemiKick] KnockbackCalculator: resistanceRatio > HardThreshold -> ТАМБЛ + урон. computedForce={computedForce}, floor={SemiKickSettings.KnockbackHardMinForce}, итог recoilForce={recoilForceHard}, direction={recoilDirection}");
 
                 var tumble = InternalAccessors.GetTumbleComponent(kicker);
                 if (tumble != null)
                 {
                     int damage = CalculateDamage(resistanceRatio, hard);
-                    SemiKick.LogInfo($"[SemiKick] KnockbackCalculator: вызываю tumble.TumbleRequest(true, false) и tumble.ImpactHurtSet(window={SemiKickConfig.ImpactHurtWindow.Value}, damage={damage})");
+                    SemiKick.LogInfo($"[SemiKick] KnockbackCalculator: вызываю tumble.TumbleRequest(true, false) и tumble.ImpactHurtSet(window={SemiKickSettings.ImpactHurtWindow}, damage={damage})");
 
                     tumble.TumbleRequest(_isTumbling: true, _playerInput: false);
-                    tumble.ImpactHurtSet(SemiKickConfig.ImpactHurtWindow.Value, damage);
+                    tumble.ImpactHurtSet(SemiKickSettings.ImpactHurtWindow, damage);
                 }
                 else
                 {
@@ -94,8 +94,8 @@ namespace SemiKick
         {
             float t = Mathf.InverseLerp(hardThreshold, hardThreshold * 2f, resistanceRatio);
             int damage = Mathf.RoundToInt(Mathf.Lerp(
-                SemiKickConfig.ImpactHurtDamageBase.Value,
-                SemiKickConfig.ImpactHurtDamageMax.Value,
+                SemiKickSettings.ImpactHurtDamageBase,
+                SemiKickSettings.ImpactHurtDamageMax,
                 t));
 
             SemiKick.LogInfo($"[SemiKick] KnockbackCalculator.CalculateDamage: resistanceRatio={resistanceRatio}, t={t}, damage={damage}");

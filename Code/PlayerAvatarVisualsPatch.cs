@@ -38,10 +38,10 @@ namespace SemiKick
                             ?? visuals.gameObject.AddComponent<KickAnimationPlayer>();
 
                 string pluginDir = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
-                string jsonPath = System.IO.Path.Combine(pluginDir, "kick_animation.json");
+                string jsonPath = "SemiKick.Resources.kick_animation.json";
 
-                Debug.Log($"[JSONAnimation] Вызываю kickPlayer.Initialize(jsonPath={jsonPath}, rigRoot={visuals.transform.name}) на объекте {visuals.gameObject.name}.");
-                kickPlayer.Initialize(jsonPath, visuals.transform);
+                Debug.Log($"[JSONAnimation] Вызываю kickPlayer.InitializeFromEmbeddedResource(jsonPath={jsonPath}, rigRoot={visuals.transform.name}) на объекте {visuals.gameObject.name}.");
+                kickPlayer.InitializeFromEmbeddedResource(jsonPath, visuals.transform);
             }
             else
             {

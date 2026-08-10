@@ -15,9 +15,7 @@ namespace SemiKick
         /// <summary>
         /// Реальный уровень апгрейда силы пинка ЭТОГО игрока (приходит из
         /// REPOLib Upgrades.RegisterUpgrade -> OnUpgradeStart/OnUpgradeApplied
-        /// в SemiKick.cs, per-player, персистентно между раундами).
-        /// НЕ путать с SemiKickConfig.KickLevel — тот теперь просто debug-
-        /// добавка поверх этого значения, см. SemiKickRunner.GetEffectiveKickLevel.
+        /// в SemiKick.Upgrades.cs, per-player, персистентно между раундами).
         /// </summary>
         public int KickLevel { get; private set; } = 0;
 
@@ -36,7 +34,10 @@ namespace SemiKick
 
         public void Initialize(KickAnimationPlayer animPlayer, PlayerAvatar avatar)
         {
-            pc = GameObject.FindFirstObjectByType<PlayerController>();
+            GameObject controllerObj = GameObject.Find("Controller");
+            if (controllerObj != null)
+                pc = controllerObj.GetComponent<PlayerController>();
+
             if (pc == null ) SemiKick.LogWarning("[KickAnimHandler] PlayerController не найден на сцене!");
             _animPlayer = animPlayer;
             _avatar = avatar;
@@ -118,36 +119,38 @@ namespace SemiKick
         }
 
         /// <summary>
-        /// Просит применить импульс к игроку, которого пнули. Игра разрешает
-        /// ForceImpulseRPC только от мастера или от владельца аватара
-        /// (см. MasterAndOwnerOnlyRPC в декомпиле PlayerAvatar.ForceImpulseRPC),
-        /// поэтому если мы не мастер — просим применить мастера за нас,
-        /// а не вызываем avatar.ForceImpulse напрямую.
-        ///
-        /// Теперь это просто частный случай RequestGenericKick — вся логика
-        /// "отключить контроллер -> подождать 1.5с -> включить контроллер"
-        /// живёт в DelayedKickCoroutine и общая для ЛЮБОГО типа цели
-        /// (Player/Enemy/Valuable), см. RequestGenericKick.
+        /// Принудительный тамбл ЦЕЛИ пинка (не self-recoil кикера, это
+        /// KnockbackCalculator.Apply, другой механизм). Вызывается только
+        /// на master-копии _avatar (см. RequestKick/RequestKickRPC).
         /// </summary>
-        public void RequestKick(Vector3 force)
+        private void TryForceTumble(Vector3 force)
         {
-            RequestGenericKick(() =>
-            {
-                if (SemiFunc.IsMasterClientOrSingleplayer())
-                {
-                    // Мы мастер (или синглплеер) — применяем напрямую
-                    _avatar.ForceImpulse(force);
-                }
-                else if (_photonView != null)
-                {
-                    // Мы гость — просим мастера применить импульс
-                    _photonView.RPC(nameof(RequestKickRPC), RpcTarget.MasterClient, force);
-                }
-                else
-                {
-                    SemiKick.LogWarning($"[SemiKick] KickAnimHandler.RequestKick: _photonView == null, пинок не отправлен.");
-                }
-            });
+            var tumble = InternalAccessors.GetTumbleComponent(_avatar);
+            if (tumble == null) return;
+
+            // 1. Рассчитываем направление "вверх-вперед" (как у Апскрима)
+            // Смешиваем направление удара с вектором вверх на 60%
+            Vector3 launchDirection = Vector3.Lerp(force.normalized, Vector3.up, 0.6f);
+
+            // Получаем интенсивность силы (длина вектора force)
+            float forceMagnitude = force.magnitude;
+
+            // 2. Вводим игрока в состояние Ragdoll и отключаем управление
+            tumble.TumbleRequest(_isTumbling: true, _playerInput: false);
+
+            // 3. ПРИКЛАДЫВАЕМ МОЩНУЮ СИЛУ (именно TumbleForce, а не просто Impulse)
+            tumble.TumbleForce(launchDirection * forceMagnitude);
+
+            // 4. ЗАКРУЧИВАЕМ ИГРОКА (сальто назад от удара)
+            tumble.TumbleTorque(-_avatar.transform.right * forceMagnitude);
+
+            // 5. БЛОКИРУЕМ ПОДЪЕМ (на 1.5 секунды, как у Апскрима)
+            tumble.TumbleOverrideTime(1.5f);
+
+            // 6. УРОН (опционально, если хочешь, чтобы пинок дамажил)
+            // tumble.ImpactHurtSet(3f, 10); 
+
+            SemiKick.LogInfo($"[SemiKick] ГАРАНТИРОВАННЫЙ ПОЛЕТ для {_avatar.name}. Сила: {forceMagnitude}");
         }
 
         /// <summary>
@@ -164,6 +167,7 @@ namespace SemiKick
         /// </summary>
         public void RequestGenericKick(System.Action applyAction)
         {
+            if (!InternalAccessors.CanDoStuff(Avatar)) return;
             StartCoroutine(DelayedKickCoroutine(applyAction));
         }
 
@@ -200,11 +204,54 @@ namespace SemiKick
             pc.enabled = true;
             applyAction?.Invoke();
         }
-        [PunRPC]
-        private void RequestKickRPC(Vector3 force, PhotonMessageInfo _info = default)
+        /// <summary>
+        /// Просит применить импульс к игроку, которого пнули. Игра разрешает
+        /// ForceImpulseRPC только от мастера или от владельца аватара
+        /// (см. MasterAndOwnerOnlyRPC в декомпиле PlayerAvatar.ForceImpulseRPC),
+        /// поэтому если мы не мастер — просим применить мастера за нас,
+        /// а не вызываем avatar.ForceImpulse напрямую.
+        ///
+        /// Теперь это просто частный случай RequestGenericKick — вся логика
+        /// "отключить контроллер -> подождать 1.5с -> включить контроллер"
+        /// живёт в DelayedKickCoroutine и общая для ЛЮБОГО типа цели
+        /// (Player/Enemy/Valuable), см. RequestGenericKick.
+        /// </summary>
+        /// <param name="forceTumble">
+        /// Гарантированный тамбл ЦЕЛИ (с SemiKickSettings.PlayerTumbleGuaranteeLevel).
+        /// Ведём тем же master/owner-путём, что и force — ЭТОТ КОМПОНЕНТ
+        /// принадлежит ЦЕЛИ пинка (см. KickNetworking.ApplyKickToPlayer:
+        /// handler = player.GetComponent, где player — тот, кого пнули),
+        /// поэтому "мы мастер" здесь означает "кикер — мастер", а RPC на
+        /// MasterClient дойдёт до владельца _avatar так же, как для force.
+        /// ⚠️ Не подтверждено плейтестом с двумя гостями (только кикер=не
+        /// мастер, target=не мастер) — TumbleRequest раньше вызывался только
+        /// на СВОЁМ аватаре (см. KnockbackCalculator, там кикер===владелец),
+        /// здесь же он выполняется на master-копии ЧУЖОГО _avatar. Если
+        /// тамбл не будет видно у самой цели/у остальных — проверить, не
+        /// нужен ли TumbleRequest дополнительный RPC до владельца отдельно
+        /// от мастера (аналогично MasterAndOwnerOnlyRPC у ForceImpulseRPC).
+        /// </param>
+        public void RequestKick(Vector3 force, bool forceTumble = false)
         {
-            // Выполнится на компьютере мастера, на ЕГО копии этого же PlayerAvatar
+            RequestGenericKick(() =>
+            {
+                if (SemiFunc.IsMasterClientOrSingleplayer())
+                {
+                    _avatar.ForceImpulse(force);
+                    if (forceTumble) TryForceTumble(force); // force сюда
+                }
+                else if (_photonView != null)
+                {
+                    _photonView.RPC(nameof(RequestKickRPC), RpcTarget.MasterClient, force, forceTumble);
+                }
+            });
+        }
+
+        [PunRPC]
+        private void RequestKickRPC(Vector3 force, bool forceTumble, PhotonMessageInfo _info = default)
+        {
             _avatar.ForceImpulse(force);
+            if (forceTumble) TryForceTumble(force); // И здесь
         }
     }
 }

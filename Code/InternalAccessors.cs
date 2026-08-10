@@ -95,7 +95,7 @@ namespace SemiKick
         private static readonly AccessTools.FieldRef<PlayerAvatar, bool> IsGroundedRef =
             AccessTools.FieldRefAccess<PlayerAvatar, bool>("isGrounded");
 
-        public static bool OhGodDeveloper_WHATDIDIEVERDOTOYOU(PlayerAvatar player)
+        public static bool CanDoStuff(PlayerAvatar player)
         {
             if (player == null) return false;
 
