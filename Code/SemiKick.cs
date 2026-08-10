@@ -35,7 +35,7 @@ namespace SemiKick
         {
             LoggerInstance = Logger;
 
-            kickKeybind = Keybinds.Bind("General", "Kick", "<Keyboard>/f");
+            kickKeybind = Keybinds.Bind("Kick", "<Keyboard>/f");
 
             LogInfo("SemiKick загружен, бинд зарегистрирован.");
 

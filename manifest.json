@@ -1,0 +1,13 @@
+{
+  "namespace": "Zehs",
+  "name": "REPOLib",
+  "description": "Adding kick feature to R.E.P.O.",
+  "version_number": "1.0.0",
+  "dependencies": [
+  "BepInEx-BepInExPack-5.4.2304",
+  "Zehs-REPOLib-4.2.0",
+  "BULLETBOT-KeybindLib-1.0.6"
+  ],
+  "website_url": "https://github.com/ZehsTeam/REPOLib",
+  "FullName": "Zehs-REPOLib"
+}
