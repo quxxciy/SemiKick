@@ -1,6 +1,5 @@
 {
-  "namespace": "Zehs",
-  "name": "REPOLib",
+  "name": "SemiKick",
   "description": "Adding kick feature to R.E.P.O.",
   "version_number": "1.0.0",
   "dependencies": [
@@ -8,6 +7,6 @@
   "Zehs-REPOLib-4.2.0",
   "BULLETBOT-KeybindLib-1.0.6"
   ],
-  "website_url": "https://github.com/ZehsTeam/REPOLib",
-  "FullName": "Zehs-REPOLib"
+  "website_url": "https://github.com/quxxciy/SemiKick",
+  "FullName": "SemiKick"
 }

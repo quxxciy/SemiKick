@@ -10,7 +10,7 @@ A simple mod that adds a kick mechanic to the game, along with the ability to up
 - **Kick upgrade**: Increases the power of the kick.
 
 ## Installation:
-
+**Dependencies**: BepInExPack, RepoLib, KeybindLib
 ### Automatic:
 
 Install the mod into your modpack via the Thunderstore/r2modman mod manager.
