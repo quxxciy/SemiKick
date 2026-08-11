@@ -15,7 +15,7 @@ namespace SemiKick
     internal static class SemiKickSettings
     {
         // --- Логирование ---
-        public const bool EnableLogging = true;
+        public const bool EnableLogging = false;
         public const LogLevel MinLogLevel = LogLevel.Info;
 
         // --- Сила пинка ---
